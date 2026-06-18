@@ -58,29 +58,36 @@
 # 安装依赖
 npm install && npm run build
 
-# 注册到 Claude Code
+# 注册到 Claude Code（换成你自己的 LLM 配置）
 claude mcp add auto-kb \
-  -e LLM_BASE_URL=http://localhost:15721/v1 \
-  -e LLM_API_KEY=cc-switch-proxy \
-  -e LLM_MODEL=deepseek-v4-flash \
+  -e LLM_BASE_URL=https://api.openai.com/v1 \
+  -e LLM_API_KEY=sk-your-key \
+  -e LLM_MODEL=gpt-4o \
   -- node dist/index.js
 ```
 
-### 用其他模型
+### 模型配置示例
 
 ```bash
 # OpenAI
 claude mcp add auto-kb \
   -e LLM_BASE_URL=https://api.openai.com/v1 \
-  -e LLM_API_KEY=sk-... \
+  -e LLM_API_KEY=sk-xxx \
   -e LLM_MODEL=gpt-4o \
   -- node dist/index.js
 
-# Ollama 本地
+# 本地 Ollama
 claude mcp add auto-kb \
   -e LLM_BASE_URL=http://localhost:11434/v1 \
   -e LLM_API_KEY=ollama \
   -e LLM_MODEL=llama3 \
+  -- node dist/index.js
+
+# Anthropic
+claude mcp add auto-kb \
+  -e LLM_BASE_URL=https://api.anthropic.com \
+  -e LLM_API_KEY=sk-ant-xxx \
+  -e LLM_MODEL=claude-sonnet-4-20250514 \
   -- node dist/index.js
 ```
 

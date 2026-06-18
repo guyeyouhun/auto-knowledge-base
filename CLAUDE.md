@@ -5,8 +5,8 @@ MCP 协议的知识库系统，为工程 Agent 提供智能知识服务。
 ## 当前状态
 
 - **版本：** v0.1 MVP
-- **MCP Server：** 已注册到 Claude Code（工具名 `auto-kb`，✔ Connected）
-- **LLM 配置：** `localhost:15721` → `deepseek-v4-flash`（自动探测 Anthropic 格式）
+- **MCP Server：** 注册到 Claude Code（工具名 `auto-kb`，需配置 LLM）
+- **LLM 配置：** 通过环境变量 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 指定
 - **存储：** JSON 文件系统 + 全文索引
 
 ## 核心设计原则
