@@ -52,7 +52,10 @@ MCP 协议的知识库系统，为工程 Agent 提供智能知识服务。
 # 构建
 npm run build
 
-# 安装（复制到 ~/.local/share/auto-kb/ 并注册 MCP）
+# 安装（自动探测 LLM 配置，通常不需要参数）
+node dist/install.js
+
+# 如需手动指定 LLM:
 node dist/install.js --llm-url <URL> --llm-key <KEY> --llm-model <MODEL>
 
 # 安装后使用（在任意 Claude Code 会话中）

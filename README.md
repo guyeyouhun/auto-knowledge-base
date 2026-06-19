@@ -21,14 +21,14 @@ git clone https://github.com/your-org/auto-knowledge-base.git
 cd auto-knowledge-base
 npm install && npm run build
 
-# 永久安装到 Claude Code
-node dist/install.js --llm-url https://api.openai.com/v1 --llm-api-key sk-xxx --llm-model gpt-4o
+# 永久安装到 Claude Code（自动探测 LLM 配置）
+node dist/install.js
 
-# 换个姿势：
-node dist/install.js -u http://localhost:11434/v1 -k ollama -m llama3
-
-# 完成！现在 Claude 可以直接使用知识库工具了
+# 安装完成！现在 Claude 可以直接使用知识库工具了
 ```
+
+> 安装脚本自动从当前会话环境探测 LLM 配置（`ANTHROPIC_BASE_URL` / `LLM_BASE_URL`），
+> 通常不需要手动指定参数。如需手动配置：`node dist/install.js -u <URL> -k <KEY> -m <MODEL>`
 
 卸载同样简单：
 ```bash
