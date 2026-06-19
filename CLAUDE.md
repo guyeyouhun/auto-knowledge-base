@@ -5,7 +5,8 @@ MCP 协议的知识库系统，为工程 Agent 提供智能知识服务。
 ## 当前状态
 
 - **版本：** v0.1 MVP
-- **MCP Server：** 注册到 Claude Code（工具名 `auto-kb`，需配置 LLM）
+- **GitHub：** https://github.com/guyeyouhun/auto-knowledge-base
+- **MCP Server：** 通过 `node dist/install.js` 一键安装到 Claude Code
 - **LLM 配置：** 通过环境变量 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 指定
 - **存储：** JSON 文件系统 + 全文索引
 - **安装：** 支持一键安装/卸载，复制到永久目录运行
@@ -71,11 +72,18 @@ claude> 搜索关于 MCP 的知识
 
 # 卸载
 node dist/uninstall.js
-
-# 重新配置 LLM
-claude mcp remove auto-kb
-node dist/install.js --install -u <新URL> -k <新KEY> -m <新MODEL>
 ```
+
+## Agent 安装指引
+
+当用户在 Claude Code 中说"安装 auto-kb"时：
+
+1. 克隆仓库：`git clone https://github.com/guyeyouhun/auto-knowledge-base.git`
+2. 进入目录：`cd auto-knowledge-base`
+3. 安装依赖并构建：`npm install && npm run build`
+4. 探测 LLM：`node dist/install.js` → 看到 JSON 结果
+5. 问用户选哪个 LLM 配置
+6. 执行安装：`node dist/install.js --install`（或带参数安装）
 
 ## 开发记录
 
