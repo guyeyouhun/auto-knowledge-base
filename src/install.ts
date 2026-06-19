@@ -1,21 +1,24 @@
 #!/usr/bin/env node
 
 /**
- * @file 一键安装 auto-kb MCP Server
- * @description 构建后执行：node dist/install.js [选项]
+ * @file 一键安装 / 探测 auto-kb MCP Server
  *
- * 自动从环境变量探测 LLM 配置，用户无需手动指定。
+ * 两种运行模式：
+ *   1. 探测模式（默认）—— 探测 LLM 配置，输出 JSON 让 Agent 让用户选择
+ *   2. 安装模式（--install）—— 根据传入参数实际执行安装
  *
  * 用法:
- *   node dist/install.js                               # 自动探测 LLM 配置
- *   node dist/install.js -u <URL> -k <KEY> -m <MODEL>  # 手动指定 LLM 配置
- *   node dist/install.js --no-detect                    # 跳过 LLM 探测，后续再配
+ *   node dist/install.js                                  # 探测 LLM 配置，不安装
+ *   node dist/install.js --install                        # 使用探测到的配置安装
+ *   node dist/install.js --install -u <URL> -k <KEY> -m <MODEL>  # 自定义 LLM 安装
+ *   node dist/install.js --install --no-detect            # 安装但不配 LLM
  *
  * 选项:
- *   --llm-url, -u     LLM API 地址（默认从环境变量自动探测）
+ *   --install, -i     执行安装（默认只探测不安装）
+ *   --llm-url, -u     LLM API 地址
  *   --llm-key, -k     API 密钥
  *   --llm-model, -m   模型名称
- *   --no-detect       跳过 LLM 自动探测
+ *   --no-detect       安装时跳过 LLM 配置
  *   --dir, -d         安装目录（默认 ~/.local/share/auto-kb）
  *   --help, -h        显示此帮助
  */
@@ -39,9 +42,19 @@ function e(msg: string): never {
   process.exit(1)
 }
 
-// ── 解析参数 ──
+// ── 参数 ──
+
+interface DetectedLLM {
+  id: string
+  name: string
+  provider: string
+  baseUrl: string
+  apiKey: string
+  model: string
+}
 
 interface CliArgs {
+  doInstall: boolean
   llmUrl: string
   llmKey: string
   llmModel: string
@@ -51,13 +64,14 @@ interface CliArgs {
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2)
-  const result: Record<string, string> & { noDetect?: boolean } = {}
+  const result: Record<string, string> & { doInstall?: boolean; noDetect?: boolean } = {}
 
   for (let i = 0; i < args.length; i++) {
     const key = args[i]
     const val = args[i + 1]
 
-    if (key === '--llm-url' || key === '-u') { result.llmUrl = val; i++ }
+    if (key === '--install' || key === '-i') { result.doInstall = true }
+    else if (key === '--llm-url' || key === '-u') { result.llmUrl = val; i++ }
     else if (key === '--llm-key' || key === '-k') { result.llmKey = val; i++ }
     else if (key === '--llm-model' || key === '-m') { result.llmModel = val; i++ }
     else if (key === '--dir' || key === '-d') { result.installDir = val; i++ }
@@ -66,16 +80,22 @@ function parseArgs(): CliArgs {
       console.log(`
 用法: node dist/install.js [选项]
 
-一键安装 auto-kb MCP Server。
+探测或安装 auto-kb MCP Server。
 
-自动从当前会话的环境变量探测 LLM 配置（ANTHROPIC_BASE_URL 等），
-用户通常不需要指定任何参数。
+# 先探测 LLM 配置（不安装）
+  node dist/install.js
+
+# 然后由 Agent 让用户选择，再执行安装
+  node dist/install.js --install                        # 用探测到的 LLM 安装
+  node dist/install.js --install --no-detect            # 不配 LLM 安装
+  node dist/install.js --install -u <URL> -k <KEY> -m <MODEL>  # 自定义 LLM
 
 选项:
-  --llm-url, -u   <URL>    LLM API 地址（覆盖自动探测）
-  --llm-key, -k   <KEY>    API 密钥（覆盖自动探测）
-  --llm-model, -m <MODEL>  模型名称（覆盖自动探测）
-  --no-detect              跳过 LLM 自动探测，安装后手动配置
+  --install, -i     执行安装（默认只探测不安装）
+  --llm-url, -u   <URL>    LLM API 地址
+  --llm-key, -k   <KEY>    API 密钥
+  --llm-model, -m <MODEL>  模型名称
+  --no-detect              跳过 LLM 自动探测
   --dir, -d       <PATH>   安装目录（默认 ${DEFAULT_INSTALL_DIR}）
   --help, -h               显示此帮助
 `)
@@ -84,6 +104,7 @@ function parseArgs(): CliArgs {
   }
 
   return {
+    doInstall: !!result.doInstall,
     llmUrl: result.llmUrl || '',
     llmKey: result.llmKey || '',
     llmModel: result.llmModel || '',
@@ -92,71 +113,64 @@ function parseArgs(): CliArgs {
   }
 }
 
-// ── LLM 自动探测 ──
-
-interface LLMConfig {
-  baseUrl: string
-  apiKey: string
-  model: string
-}
+// ── LLM 探测 ──
 
 /**
- * 从进程环境变量自动探测 LLM 配置。
- * 优先级: CLI 参数 > LLM_* 环境变量 > ANTHROPIC_* 环境变量
+ * 探测环境中的 LLM 配置。
+ * 返回探测到的配置列表（可能有 0 到多个）。
  */
-function detectLLM(cli: CliArgs): LLMConfig | null {
-  // 1. CLI 参数直接返回
-  if (cli.llmUrl && cli.llmKey) {
-    return {
-      baseUrl: cli.llmUrl,
-      apiKey: cli.llmKey,
-      model: cli.llmModel || 'gpt-4o',
-    }
+function probeLLM(): DetectedLLM[] {
+  const detected: DetectedLLM[] = []
+
+  // 1. LLM_* 变量（auto-kb 原生格式）
+  const llmUrl = process.env.LLM_BASE_URL || ''
+  const llmKey = process.env.LLM_API_KEY || ''
+  const llmModel = process.env.LLM_MODEL || ''
+  if (llmUrl && llmKey) {
+    detected.push({
+      id: 'llm_env',
+      name: `当前 LLM (${llmModel || '默认'})`,
+      provider: 'OpenAI 兼容',
+      baseUrl: llmUrl,
+      apiKey: llmKey,
+      model: llmModel || 'gpt-4o',
+    })
   }
 
-  if (cli.noDetect) return null
-
-  // 2. 优先探测 LLM_* 变量（auto-kb 原生格式）
-  const envUrl = process.env.LLM_BASE_URL || ''
-  const envKey = process.env.LLM_API_KEY || ''
-  const envModel = process.env.LLM_MODEL || ''
-  if (envUrl && envKey) {
-    log(`探测到 LLM 配置: ${envUrl}`)
-    return {
-      baseUrl: envUrl,
-      apiKey: envKey,
-      model: envModel || 'gpt-4o',
-    }
-  }
-
-  // 3. 从 ANTHROPIC_* 变量探测（Claude Code 会话环境）
+  // 2. ANTHROPIC_* 变量（Claude Code 会话环境）
   const antUrl = process.env.ANTHROPIC_BASE_URL || ''
   const antKey = process.env.ANTHROPIC_API_KEY || ''
   const antModel = process.env.ANTHROPIC_MODEL || ''
-  if (antUrl && antKey) {
-    // 补上 /v1 路径（auto-kb 用 OpenAI 格式访问）
+  if (antUrl && antKey && !detected.some(d => d.apiKey === antKey)) {
     const baseUrl = antUrl.replace(/\/+$/, '') + '/v1'
-    log(`从 ANTHROPIC_* 探测到 LLM 配置: ${antUrl}`)
-    return {
+    detected.push({
+      id: 'anthropic_env',
+      name: `当前 Claude Code (${antModel || '默认'})`,
+      provider: 'Anthropic 兼容',
       baseUrl,
       apiKey: antKey,
       model: antModel || 'gpt-4o',
-    }
+    })
   }
 
-  return null
+  return detected
 }
 
-// ── 递归复制目录 ──
+// ── 安装逻辑 ──
+
+function shellEscape(val: string): string {
+  if (/[\s"']/.test(val)) {
+    return `"${val.replace(/"/g, '\\"')}"`
+  }
+  return val
+}
 
 function copyRecursive(src: string, dest: string) {
   if (!existsSync(src)) return
   mkdirSync(dest, { recursive: true })
-
   for (const entry of readdirSync(src)) {
     const srcPath = join(src, entry)
     const destPath = join(dest, entry)
-
     if (statSync(srcPath).isDirectory()) {
       copyRecursive(srcPath, destPath)
     } else {
@@ -165,43 +179,19 @@ function copyRecursive(src: string, dest: string) {
   }
 }
 
-// ── shell 安全转义 ──
-
-function shellEscape(val: string): string {
-  // 包含空格或特殊字符时加引号
-  if (/[\s"']/.test(val)) {
-    return `"${val.replace(/"/g, '\\"')}"`
-  }
-  return val
-}
-
-// ── 主流程 ──
-
-function main() {
-  const opts = parseArgs()
-  const installDir = opts.installDir
-
-  // 检查 dist 是否存在
+function doInstall(installDir: string, llm: DetectedLLM | null) {
   const distDir = join(PROJECT_ROOT, 'dist')
+
+  // 检查 dist
   if (!existsSync(distDir)) {
     e('dist/ 目录不存在，请先执行 npm run build')
   }
 
-  // 检查 claude CLI 是否可用
+  // 检查 claude CLI
   try {
     execSync('claude --version', { stdio: 'pipe' })
   } catch {
-    e('claude CLI 未找到，请确保 Claude Code 已安装')
-  }
-
-  // 自动探测 LLM 配置
-  const llm = detectLLM(opts)
-  const hasLLM = llm !== null
-
-  if (hasLLM) {
-    log(`LLM: ${llm!.baseUrl} | 模型: ${llm!.model}`)
-  } else {
-    log('未配置 LLM，知识库将以纯文本模式运行')
+    e('claude CLI 不可用，请确保 Claude Code 已安装')
   }
 
   // 1. 创建安装目录
@@ -212,7 +202,7 @@ function main() {
   log('复制 dist...')
   copyRecursive(distDir, join(installDir, 'dist'))
 
-  // 3. 复制 package.json（锁文件可选）
+  // 3. 复制 package.json
   for (const file of ['package.json', 'package-lock.json']) {
     const src = join(PROJECT_ROOT, file)
     if (existsSync(src)) copyFileSync(src, join(installDir, file))
@@ -229,25 +219,100 @@ function main() {
   // 5. 注册 MCP Server
   const serverCmd = `node ${shellEscape(join(installDir, 'dist', 'index.js'))}`
   let mcpCmd = `claude mcp add auto-kb`
-  if (hasLLM) {
-    mcpCmd += ` -e LLM_BASE_URL=${shellEscape(llm!.baseUrl)} -e LLM_API_KEY=${shellEscape(llm!.apiKey)} -e LLM_MODEL=${shellEscape(llm!.model)}`
+  if (llm) {
+    mcpCmd += ` -e LLM_BASE_URL=${shellEscape(llm.baseUrl)} -e LLM_API_KEY=${shellEscape(llm.apiKey)} -e LLM_MODEL=${shellEscape(llm.model)}`
+    log(`LLM: ${llm.model} (${llm.baseUrl})`)
+  } else {
+    log('未配置 LLM，知识库将以纯文本模式运行')
   }
   mcpCmd += ` -- ${serverCmd}`
 
   log('注册 MCP Server...')
   execSync(mcpCmd, { stdio: 'pipe', timeout: 30_000 })
 
-  // 6. 输出结果（Agent 可解析）
+  // 6. 输出结果
   console.log(JSON.stringify({
-    installed: true,
+    action: 'installed',
     dir: installDir,
-    llmConfigured: hasLLM,
+    llmConfigured: llm !== null,
     llmModel: llm?.model || null,
-    llmProvider: llm?.baseUrl || null,
-    message: hasLLM
-      ? `✅ auto-kb 已安装，LLM (${llm!.model}) 已自动配置`
-      : '✅ auto-kb 已安装（纯文本模式）\n   需配置 LLM 可运行: claude mcp update auto-kb -e LLM_BASE_URL=<URL> -e LLM_API_KEY=<KEY> -e LLM_MODEL=<MODEL>',
+    message: llm
+      ? `✅ auto-kb 已安装完成，LLM (${llm.model}) 已配置`
+      : `✅ auto-kb 已安装完成（纯文本模式）\n   需配置 LLM 可运行: claude mcp update auto-kb -e LLM_BASE_URL=<URL> -e LLM_API_KEY=<KEY> -e LLM_MODEL=<MODEL>`,
   }))
+}
+
+// ── 主流程 ──
+
+function main() {
+  const opts = parseArgs()
+
+  // ── 探测模式（默认） ──
+  if (!opts.doInstall) {
+    const detected = probeLLM()
+
+    if (detected.length === 0) {
+      // 没探测到任何 LLM 配置，让用户选择
+      console.log(JSON.stringify({
+        action: 'choice_llm',
+        message: '未自动探测到 LLM 配置。',
+        detected: [],
+        prompt: '请选择 LLM 配置方式：',
+        options: [
+          { id: 'custom', label: '手动输入 LLM 配置（API 地址、密钥、模型）' },
+          { id: 'skip', label: '暂不配置，安装后手动设置' },
+        ],
+      }))
+      return
+    }
+
+    // 探测到配置，让 Agent 让用户选
+    console.log(JSON.stringify({
+      action: 'choice_llm',
+      message: `检测到 ${detected.length} 个可用的 LLM 配置：`,
+      detected: detected.map(d => ({
+        id: d.id,
+        name: d.name,
+        provider: d.provider,
+        model: d.model,
+        baseUrl: d.baseUrl,
+      })),
+      prompt: '请选择 LLM 配置方式：',
+      options: [
+        { id: 'use_detected', label: `使用 "${detected[0].name}" 安装`, detectedId: detected[0].id },
+        { id: 'custom', label: '手动输入其他 LLM 配置' },
+        { id: 'skip', label: '暂不配置，安装后手动设置' },
+      ],
+    }))
+    return
+  }
+
+  // ── 安装模式 ──
+  // 检查有没有手动指定 LLM 参数
+  if (opts.llmUrl && opts.llmKey) {
+    doInstall(opts.installDir, {
+      id: 'custom',
+      name: '自定义',
+      provider: '自定义',
+      baseUrl: opts.llmUrl,
+      apiKey: opts.llmKey,
+      model: opts.llmModel || 'gpt-4o',
+    })
+    return
+  }
+
+  if (opts.noDetect) {
+    doInstall(opts.installDir, null)
+    return
+  }
+
+  // 默认 --install：用第一个探测到的配置
+  const detected = probeLLM()
+  if (detected.length > 0) {
+    doInstall(opts.installDir, detected[0])
+  } else {
+    doInstall(opts.installDir, null)
+  }
 }
 
 main()

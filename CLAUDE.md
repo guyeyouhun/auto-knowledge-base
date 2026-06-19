@@ -52,11 +52,18 @@ MCP 协议的知识库系统，为工程 Agent 提供智能知识服务。
 # 构建
 npm run build
 
-# 安装（自动探测 LLM 配置，通常不需要参数）
+# 第 1 步：探测 LLM 配置（不安装）
 node dist/install.js
 
-# 如需手动指定 LLM:
-node dist/install.js --llm-url <URL> --llm-key <KEY> --llm-model <MODEL>
+# Agent 会看到探测结果并让用户选择 LLM 配置方式
+
+# 第 2 步：根据用户选择执行安装
+#   选项 A：用探测到的 LLM 安装
+node dist/install.js --install
+#   选项 B：自定义 LLM
+node dist/install.js --install -u <URL> -k <KEY> -m <MODEL>
+#   选项 C：不配 LLM，后续手动设置
+node dist/install.js --install --no-detect
 
 # 安装后使用（在任意 Claude Code 会话中）
 claude> 把这份代码存到知识库
@@ -67,7 +74,7 @@ node dist/uninstall.js
 
 # 重新配置 LLM
 claude mcp remove auto-kb
-node dist/install.js --llm-url <新URL> --llm-key <新KEY> --llm-model <新MODEL>
+node dist/install.js --install -u <新URL> -k <新KEY> -m <新MODEL>
 ```
 
 ## 开发记录

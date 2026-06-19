@@ -21,16 +21,20 @@ git clone https://github.com/your-org/auto-knowledge-base.git
 cd auto-knowledge-base
 npm install && npm run build
 
-# 永久安装到 Claude Code（自动探测 LLM 配置）
+# ① 探测 LLM 配置（Agent 会看到结果并让你选择）
 node dist/install.js
 
-# 安装完成！现在 Claude 可以直接使用知识库工具了
+# ② 安装（使用你选择的 LLM 配置）
+node dist/install.js --install
+
+# 完成！现在 Claude 可以直接使用知识库工具了
 ```
 
-> 安装脚本自动从当前会话环境探测 LLM 配置（`ANTHROPIC_BASE_URL` / `LLM_BASE_URL`），
-> 通常不需要手动指定参数。如需手动配置：`node dist/install.js -u <URL> -k <KEY> -m <MODEL>`
+> 安装分两步：先探测 LLM 配置让用户选择，再执行安装。
+> 探测到 LLM 后默认使用 `当前 Claude Code 的 LLM`，也支持自定义或跳过。
+> 跳过 LLM 时知识库以纯文本模式运行，可后续通过 `claude mcp update` 配置。
 
-卸载同样简单：
+卸载：
 ```bash
 node dist/uninstall.js
 ```
