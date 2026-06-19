@@ -8,6 +8,7 @@ MCP 协议的知识库系统，为工程 Agent 提供智能知识服务。
 - **MCP Server：** 注册到 Claude Code（工具名 `auto-kb`，需配置 LLM）
 - **LLM 配置：** 通过环境变量 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 指定
 - **存储：** JSON 文件系统 + 全文索引
+- **安装：** 支持一键安装/卸载，复制到永久目录运行
 
 ## 核心设计原则
 
@@ -44,6 +45,27 @@ MCP 协议的知识库系统，为工程 Agent 提供智能知识服务。
 2. **向量嵌入** — 大量知识时 LLM 搜索成本高，需 embedding 降级
 3. **自动捕获** — PostToolUse hook 提取工程知识到 staging
 4. **知识图谱可视化** — 展示实体间关系
+
+## 一键安装 / 卸载
+
+```bash
+# 构建
+npm run build
+
+# 安装（复制到 ~/.local/share/auto-kb/ 并注册 MCP）
+node dist/install.js --llm-url <URL> --llm-key <KEY> --llm-model <MODEL>
+
+# 安装后使用（在任意 Claude Code 会话中）
+claude> 把这份代码存到知识库
+claude> 搜索关于 MCP 的知识
+
+# 卸载
+node dist/uninstall.js
+
+# 重新配置 LLM
+claude mcp remove auto-kb
+node dist/install.js --llm-url <新URL> --llm-key <新KEY> --llm-model <新MODEL>
+```
 
 ## 开发记录
 

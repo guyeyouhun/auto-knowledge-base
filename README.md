@@ -13,6 +13,30 @@
 
 **谁都能用：** Claude Code / Cursor / Windsurf……任何 MCP 客户端
 
+## 一分钟安装
+
+```bash
+# 构建
+git clone https://github.com/your-org/auto-knowledge-base.git
+cd auto-knowledge-base
+npm install && npm run build
+
+# 永久安装到 Claude Code
+node dist/install.js --llm-url https://api.openai.com/v1 --llm-api-key sk-xxx --llm-model gpt-4o
+
+# 换个姿势：
+node dist/install.js -u http://localhost:11434/v1 -k ollama -m llama3
+
+# 完成！现在 Claude 可以直接使用知识库工具了
+```
+
+卸载同样简单：
+```bash
+node dist/uninstall.js
+```
+
+> 详细用法见 [安装文档](CLAUDE.md#一键安装--卸载)
+
 ## 项目状态 (v0.1 MVP)
 
 ```
@@ -21,7 +45,7 @@
 ✅ LLM 客户端（OpenAI + Anthropic 自动探测）
 ✅ 语义搜索 + 相关性推理
 ✅ staging 暂存机制
-✅ 已注册到 Claude Code（auto-kb，✔ Connected）
+✅ 一键安装/卸载（node dist/install.js / uninstall.js）
 ⬜ SQLite 存储（进行中）
 ⬜ 向量嵌入
 ⬜ 自动捕获（PostToolUse hook）
@@ -55,15 +79,16 @@
 ## 快速开始
 
 ```bash
-# 安装依赖
+# 1. 克隆并构建
+git clone <repo-url> && cd auto-knowledge-base
 npm install && npm run build
 
-# 注册到 Claude Code（换成你自己的 LLM 配置）
-claude mcp add auto-kb \
-  -e LLM_BASE_URL=https://api.openai.com/v1 \
-  -e LLM_API_KEY=sk-your-key \
-  -e LLM_MODEL=gpt-4o \
-  -- node dist/index.js
+# 2. 永久安装到 Claude Code（提供你的 LLM 配置）
+node dist/install.js -u https://api.openai.com/v1 -k sk-your-key -m gpt-4o
+
+# 3. 完成后，Claude Code 会话中直接使用：
+#    "把这份代码存到知识库"
+#    "搜索关于 React hooks 的知识"
 ```
 
 ### 模型配置示例
@@ -124,6 +149,8 @@ knowledge_learn_staged  → LLM 提取 → staging (confidence: staging)
 ```
 src/
 ├── index.ts               # MCP Server 入口 + 6 个工具
+├── install.ts             # 一键安装脚本
+├── uninstall.ts           # 卸载脚本
 ├── types.ts               # 类型定义
 ├── config.ts              # 配置读取（.env + 环境变量）
 ├── llm/
