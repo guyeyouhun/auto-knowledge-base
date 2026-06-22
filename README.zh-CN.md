@@ -10,7 +10,7 @@
 <h1 align="center">auto-knowledge-base</h1>
 
 <p align="center">
-  <strong>17 个 MCP 工具，零 LLM 依赖的读路径，<10ms 检索延迟。</strong><br />
+  <strong>17 个 MCP 工具，读路径零 LLM 依赖，<10ms 检索延迟。</strong><br />
   为工程 Agent 设计的结构化知识库——SQLite + FTS5 + 向量嵌入 + 扩散激活 + FSRS-6 衰减。
 </p>
 
@@ -67,7 +67,7 @@ knowledge_export
 | **可信度** | truth（生命周期）× provenance（认知来源）双轴正交 |
 | **审计** | 全部操作写入 audit_log，可查询追溯 |
 | **安全** | Zod 输入校验，execFileSync 安装，密钥不泄露 |
-| **测试** | 119 个测试，18 个测试文件，覆盖存储/检索/衰减/协议层 |
+| **测试** | 119 个测试，18 个测试文件 |
 
 ---
 
@@ -130,5 +130,5 @@ npm run test:watch  # 开发模式
 ---
 
 <p align="center">
-  <a href="README.zh-CN.md">简体中文</a>
+  <a href="README.md">English</a>
 </p>
