@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { readFileSync, existsSync, mkdirSync } from 'fs'
+import { readFileSync, existsSync, mkdirSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import type { AuditEntry, KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
@@ -209,7 +209,6 @@ export class SqliteStore implements KnowledgeStorage {
     const dbPath = this.db.name
     let dbSizeBytes = 0
     try {
-      const { statSync } = await import('fs')
       dbSizeBytes = statSync(dbPath).size
     } catch { /* ignore */ }
 

@@ -64,5 +64,12 @@ export const AuditSchema = z.object({
 })
 
 export const ImportSchema = z.object({
-  entries: z.array(z.any()),
+  entries: z.array(z.object({
+    id: z.string(),
+    type: z.enum(['project', 'pattern', 'concept', 'decision']),
+    title: z.string(),
+    content: z.string(),
+    truth: z.enum(['confirmed', 'staging', 'disputed', 'deprecated']),
+    provenance: z.enum(['extracted', 'inferred', 'synthesized', 'user_stated', 'unverified']),
+  }).partial()),
 })
