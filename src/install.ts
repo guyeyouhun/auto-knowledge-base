@@ -26,7 +26,7 @@
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -158,13 +158,6 @@ function probeLLM(): DetectedLLM[] {
 
 // ── 安装逻辑 ──
 
-function shellEscape(val: string): string {
-  if (/[\s"']/.test(val)) {
-    return `"${val.replace(/"/g, '\\"')}"`
-  }
-  return val
-}
-
 function copyRecursive(src: string, dest: string) {
   if (!existsSync(src)) return
   mkdirSync(dest, { recursive: true })
@@ -217,18 +210,26 @@ function doInstall(installDir: string, llm: DetectedLLM | null) {
   })
 
   // 5. 注册 MCP Server
-  const serverCmd = `node ${shellEscape(join(installDir, 'dist', 'index.js'))}`
-  let mcpCmd = `claude mcp add auto-kb`
+  const serverPath = join(installDir, 'dist', 'index.js')
+  const addArgs: string[] = ['mcp', 'add', 'auto-kb']
   if (llm) {
-    mcpCmd += ` -e LLM_BASE_URL=${shellEscape(llm.baseUrl)} -e LLM_API_KEY=${shellEscape(llm.apiKey)} -e LLM_MODEL=${shellEscape(llm.model)}`
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    env.LLM_BASE_URL = llm.baseUrl
+    env.LLM_API_KEY = llm.apiKey
+    env.LLM_MODEL = llm.model
     log(`LLM: ${llm.model} (${llm.baseUrl})`)
+    execFileSync('claude', [...addArgs, '--', 'node', serverPath], {
+      env,
+      stdio: 'pipe',
+      timeout: 30_000,
+    })
   } else {
     log('未配置 LLM，知识库将以纯文本模式运行')
+    execFileSync('claude', [...addArgs, '--', 'node', serverPath], {
+      stdio: 'pipe',
+      timeout: 30_000,
+    })
   }
-  mcpCmd += ` -- ${serverCmd}`
-
-  log('注册 MCP Server...')
-  execSync(mcpCmd, { stdio: 'pipe', timeout: 30_000 })
 
   // 6. 输出结果
   console.log(JSON.stringify({
