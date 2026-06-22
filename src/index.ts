@@ -14,7 +14,8 @@ import { handleConfirm } from './tools/confirm.js'
 import { handleRelevant } from './tools/relevant.js'
 import { handleStatus } from './tools/status.js'
 import { handleGetRoleConfig, handleSetRoleConfig, handleListRoles } from './tools/role-config.js'
-import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema } from './validation.js'
+import { handleDecaySweep } from './tools/maintenance.js'
+import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema } from './validation.js'
 
 // ── 初始化 ──
 
@@ -138,6 +139,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['action'],
       },
     },
+    {
+      name: 'knowledge_maintenance',
+      description: '知识库维护操作。当前支持 decay_sweep：对超过 7 天未访问的 confirmed 条目执行 FSRS 衰减扫描，返回衰减和冻结的条目数。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['decay_sweep'],
+            description: '维护操作类型',
+          },
+        },
+        required: ['action'],
+      },
+    },
   ],
 }))
 
@@ -244,6 +260,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
           default:
             return { isError: true, content: [{ type: 'text', text: `Unknown action: ${action}` }] }
+        }
+      }
+
+      case 'knowledge_maintenance': {
+        const parsed = MaintenanceSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const { action } = parsed.data
+
+        switch (action) {
+          case 'decay_sweep': {
+            const result = await handleDecaySweep(storage)
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+          }
+          default:
+            return { isError: true, content: [{ type: 'text', text: `Unknown maintenance action: ${action}` }] }
         }
       }
 

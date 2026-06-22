@@ -258,6 +258,19 @@ export class SqliteStore implements KnowledgeStorage {
     `).run(success ? 1 : 0, updated.strength, updated.stability, updated.difficulty, temperature, id)
   }
 
+  async updateParams(id: string, params: any): Promise<void> {
+    const sets: string[] = []
+    const values: any[] = []
+    for (const [key, val] of Object.entries(params)) {
+      sets.push(`${key} = ?`)
+      values.push(val)
+    }
+    if (sets.length === 0) return
+    sets.push("updated_at = datetime('now')")
+    values.push(id)
+    this.db.prepare(`UPDATE knowledge SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+  }
+
   close(): void {
     this.db.close()
   }

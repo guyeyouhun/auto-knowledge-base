@@ -45,4 +45,7 @@ export interface KnowledgeStorage {
 
   /** 记录一次练习结果（成功/失败），使用 FSRS 公式更新 strength/stability/difficulty */
   recordPractice(id: string, success: boolean): Promise<void>
+
+  /** 更新指定条目的部分 FSRS 或状态字段 */
+  updateParams(id: string, params: Partial<Pick<KnowledgeEntry, 'strength' | 'stability' | 'difficulty' | 'temperature' | 'truth'>>): Promise<void>
 }

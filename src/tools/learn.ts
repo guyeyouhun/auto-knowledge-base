@@ -6,7 +6,7 @@ export async function handleLearn(
   storage: KnowledgeStorage,
   params: LearnParams,
 ): Promise<{ id: string; title: string; dedup: boolean }> {
-  const { content, title, summary, tags, roles, tasks, type, source, relations } = params
+  const { content, title, summary, tags, roles, tasks, type, source, relations, contradicts } = params
 
   // 1. Dedup check — find similar entries
   const similar = await storage.findSimilar(title || content.slice(0, 60), content)
@@ -53,6 +53,22 @@ export async function handleLearn(
   if (similar.length > 0) {
     for (const s of similar.slice(0, 3)) {
       entry.relations.push({ target: s.id, type: 'references' })
+    }
+  }
+
+  // Handle contradictions: mark both as disputed
+  if (contradicts && contradicts.length > 0) {
+    let hasExisting = false
+    for (const targetId of contradicts) {
+      const target = await storage.get(targetId)
+      if (target) {
+        hasExisting = true
+        await storage.updateParams(targetId, { truth: 'disputed' })
+        entry.relations.push({ target: targetId, type: 'contradicts' })
+      }
+    }
+    if (hasExisting) {
+      entry.truth = 'disputed'
     }
   }
 

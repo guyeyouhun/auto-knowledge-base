@@ -16,6 +16,7 @@ export const LearnSchema = z.object({
   tasks: z.array(z.string()).optional(),
   type: z.enum(['project', 'pattern', 'concept', 'decision']).optional(),
   source: z.string().optional(),
+  contradicts: z.array(z.string()).optional(),
   relations: z.array(z.object({
     target: z.string(),
     type: z.enum(['references', 'contradicts', 'supersedes', 'derives_from', 'extends', 'implements']),
@@ -50,4 +51,8 @@ export const RoleConfigSchema = z.discriminatedUnion('action', [
 export const SearchResultSchema = z.object({
   entries: z.array(z.any()),
   synthesis: z.string(),
+})
+
+export const MaintenanceSchema = z.object({
+  action: z.literal('decay_sweep'),
 })

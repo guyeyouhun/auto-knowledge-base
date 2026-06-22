@@ -66,6 +66,7 @@ export interface LearnParams {
   type?: KnowledgeType
   source?: string
   relations?: Relation[]
+  contradicts?: string[]
 }
 
 export interface RelevantParams {
