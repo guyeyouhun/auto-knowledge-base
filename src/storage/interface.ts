@@ -1,4 +1,4 @@
-import type { KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
+import type { AuditEntry, KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
 
 export interface KnowledgeStorage {
   /** 保存一个条目（创建或更新） */
@@ -48,4 +48,10 @@ export interface KnowledgeStorage {
 
   /** 更新指定条目的部分 FSRS 或状态字段 */
   updateParams(id: string, params: Partial<Pick<KnowledgeEntry, 'strength' | 'stability' | 'difficulty' | 'temperature' | 'truth'>>): Promise<void>
+
+  /** 记录一条审计日志 */
+  logAudit(kn_id: string | null, operation: string, detail?: string): Promise<void>
+
+  /** 查询审计日志，可按操作类型过滤，默认返回最近 50 条 */
+  queryAudit(limit?: number, operation?: string): Promise<AuditEntry[]>
 }

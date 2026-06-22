@@ -83,3 +83,15 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_provenance ON knowledge(provenance);
 CREATE INDEX IF NOT EXISTS idx_knowledge_roles ON knowledge(roles);
 CREATE INDEX IF NOT EXISTS idx_rel_source ON relations(source_kn);
 CREATE INDEX IF NOT EXISTS idx_rel_target ON relations(target_kn);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kn_id TEXT,
+  operation TEXT NOT NULL,
+  detail TEXT,
+  actor TEXT DEFAULT 'agent',
+  timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_kn ON audit_log(kn_id);
+CREATE INDEX IF NOT EXISTS idx_audit_op ON audit_log(operation);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(timestamp);

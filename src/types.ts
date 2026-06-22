@@ -86,3 +86,12 @@ export interface RoleConfig {
   context_budget: number
   priority_tasks: string[]
 }
+
+export interface AuditEntry {
+  id: number
+  kn_id: string | null
+  operation: string
+  detail: string | null
+  actor: string
+  timestamp: string
+}

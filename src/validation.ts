@@ -56,3 +56,9 @@ export const SearchResultSchema = z.object({
 export const MaintenanceSchema = z.object({
   action: z.literal('decay_sweep'),
 })
+
+export const AuditSchema = z.object({
+  action: z.literal('query'),
+  limit: z.number().int().positive().optional(),
+  operation: z.string().optional(),
+})

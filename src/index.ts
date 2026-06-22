@@ -15,7 +15,8 @@ import { handleRelevant } from './tools/relevant.js'
 import { handleStatus } from './tools/status.js'
 import { handleGetRoleConfig, handleSetRoleConfig, handleListRoles } from './tools/role-config.js'
 import { handleDecaySweep } from './tools/maintenance.js'
-import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema } from './validation.js'
+import { handleAuditQuery } from './tools/audit.js'
+import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema, AuditSchema } from './validation.js'
 
 // ── 初始化 ──
 
@@ -154,6 +155,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['action'],
       },
     },
+    {
+      name: 'knowledge_audit',
+      description: '查询审计日志。返回知识库操作记录，包括学习、搜索、确认等。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['query'],
+            description: '操作类型，当前仅支持 query',
+          },
+          limit: {
+            type: 'number',
+            description: '返回条数上限（默认 50）',
+          },
+          operation: {
+            type: 'string',
+            description: '按操作类型过滤（learn/search/confirm/relevant/role_config/maintenance 等）',
+          },
+        },
+        required: ['action'],
+      },
+    },
   ],
 }))
 
@@ -170,6 +194,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
         const result = await handleSearch(storage, parsed.data)
+        await storage.logAudit(null, 'search', `query: ${parsed.data.query}`)
         return {
           content: [{
             type: 'text',
@@ -184,6 +209,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
         const result = await handleLearn(storage, parsed.data)
+        await storage.logAudit(result.id, 'learn', `title: ${result.title}`)
         return {
           content: [{
             type: 'text',
@@ -196,6 +222,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const parsed = ConfirmSchema.safeParse(args)
         if (!parsed.success) return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         const result = await handleConfirm(storage, parsed.data.id)
+        await storage.logAudit(parsed.data.id, 'confirm', result.message)
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
       }
 
@@ -205,6 +232,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
         const result = await handleRelevant(storage, parsed.data)
+        await storage.logAudit(null, 'relevant', `role: ${parsed.data.role}, task: ${parsed.data.task.slice(0, 50)}`)
         return {
           content: [{
             type: 'text',
@@ -252,6 +280,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               context_budget: parsed.data.context_budget,
               priority_tasks: parsed.data.priority_tasks,
             })
+            await storage.logAudit(null, 'role_config', `action: set, role: ${parsed.data.role}`)
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
           }
           case 'list': {
@@ -273,11 +302,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         switch (action) {
           case 'decay_sweep': {
             const result = await handleDecaySweep(storage)
+            await storage.logAudit(null, 'maintenance', `decayed: ${result.decayed}, frozen: ${result.frozen}`)
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
           }
           default:
             return { isError: true, content: [{ type: 'text', text: `Unknown maintenance action: ${action}` }] }
         }
+      }
+
+      case 'knowledge_audit': {
+        const parsed = AuditSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const result = await handleAuditQuery(storage, parsed.data.limit, parsed.data.operation)
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
       }
 
       default:

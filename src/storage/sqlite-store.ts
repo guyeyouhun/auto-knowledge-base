@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { readFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import type { KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
+import type { AuditEntry, KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
 import type { KnowledgeStorage } from './interface.js'
 import { applySuccess, applyFailure, updateTemperature } from '../fsrs.js'
 
@@ -275,5 +275,21 @@ export class SqliteStore implements KnowledgeStorage {
 
   close(): void {
     this.db.close()
+  }
+
+  async logAudit(kn_id: string | null, operation: string, detail?: string): Promise<void> {
+    this.db.prepare('INSERT INTO audit_log(kn_id, operation, detail) VALUES (?, ?, ?)').run(kn_id, operation, detail || null)
+  }
+
+  async queryAudit(limit = 50, operation?: string): Promise<AuditEntry[]> {
+    let sql = 'SELECT * FROM audit_log'
+    const params: any[] = []
+    if (operation) {
+      sql += ' WHERE operation = ?'
+      params.push(operation)
+    }
+    sql += ' ORDER BY timestamp DESC LIMIT ?'
+    params.push(limit)
+    return this.db.prepare(sql).all(...params) as AuditEntry[]
   }
 }
