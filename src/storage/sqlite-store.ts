@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { readFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import type { KnowledgeEntry, SearchParams, Truth } from '../types.js'
+import type { KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
 import type { KnowledgeStorage } from './interface.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -182,6 +182,40 @@ export class SqliteStore implements KnowledgeStorage {
   async health(): Promise<{ ok: boolean; count: number }> {
     const count = await this.count()
     return { ok: true, count }
+  }
+
+  async getRoleConfig(role: string): Promise<RoleConfig | null> {
+    const row = this.db.prepare('SELECT * FROM role_config WHERE role = ?').get(role) as any
+    if (!row) return null
+    return {
+      role: row.role,
+      entry_kn_ids: JSON.parse(row.entry_kn_ids || '[]'),
+      spread_depth: row.spread_depth,
+      context_budget: row.context_budget,
+      priority_tasks: JSON.parse(row.priority_tasks || '[]'),
+    }
+  }
+
+  async setRoleConfig(config: RoleConfig): Promise<void> {
+    this.db.prepare(`
+      INSERT INTO role_config(role, entry_kn_ids, spread_depth, context_budget, priority_tasks)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(role) DO UPDATE SET
+        entry_kn_ids = excluded.entry_kn_ids,
+        spread_depth = excluded.spread_depth,
+        context_budget = excluded.context_budget,
+        priority_tasks = excluded.priority_tasks
+    `).run(
+      config.role,
+      JSON.stringify(config.entry_kn_ids),
+      config.spread_depth,
+      config.context_budget,
+      JSON.stringify(config.priority_tasks),
+    )
+  }
+
+  async listRoles(): Promise<string[]> {
+    return (this.db.prepare('SELECT role FROM role_config').all() as any[]).map(r => r.role)
   }
 
   close(): void {

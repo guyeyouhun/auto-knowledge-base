@@ -75,3 +75,13 @@ export interface RelevantParams {
   project?: string
   maxResults?: number
 }
+
+// ── 角色配置 ──
+
+export interface RoleConfig {
+  role: string
+  entry_kn_ids: string[]
+  spread_depth: number
+  context_budget: number
+  priority_tasks: string[]
+}

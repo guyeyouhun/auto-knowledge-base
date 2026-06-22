@@ -1,4 +1,4 @@
-import type { KnowledgeEntry, SearchParams, Truth } from '../types.js'
+import type { KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
 
 export interface KnowledgeStorage {
   /** 保存一个条目（创建或更新） */
@@ -27,4 +27,13 @@ export interface KnowledgeStorage {
 
   /** 健康检查 */
   health(): Promise<{ ok: boolean; count: number }>
+
+  /** 获取角色配置 */
+  getRoleConfig(role: string): Promise<RoleConfig | null>
+
+  /** 设置/更新角色配置 */
+  setRoleConfig(config: RoleConfig): Promise<void>
+
+  /** 列出所有已配置的角色 */
+  listRoles(): Promise<string[]>
 }

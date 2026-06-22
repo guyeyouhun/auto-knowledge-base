@@ -13,7 +13,8 @@ import { handleLearn } from './tools/learn.js'
 import { handleConfirm } from './tools/confirm.js'
 import { handleRelevant } from './tools/relevant.js'
 import { handleStatus } from './tools/status.js'
-import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema } from './validation.js'
+import { handleGetRoleConfig, handleSetRoleConfig, handleListRoles } from './tools/role-config.js'
+import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema } from './validation.js'
 
 // ── 初始化 ──
 
@@ -100,6 +101,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {},
       },
     },
+    {
+      name: 'knowledge_role_config',
+      description: '管理角色配置。支持 get（获取角色配置）、set（设置/更新角色配置）、list（列出所有角色）。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['get', 'set', 'list'],
+            description: '操作类型：get 获取角色配置，set 设置/更新角色配置，list 列出所有角色',
+          },
+          role: {
+            type: 'string',
+            description: '角色名称（get/set 时需要）',
+          },
+          entry_kn_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '入口知识条目 ID 列表（set 时需要）',
+          },
+          spread_depth: {
+            type: 'number',
+            description: '扩散深度（set 时需要）',
+          },
+          context_budget: {
+            type: 'number',
+            description: '上下文预算 token 数（set 时需要）',
+          },
+          priority_tasks: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '优先任务描述列表（set 时需要）',
+          },
+        },
+        required: ['action'],
+      },
+    },
   ],
 }))
 
@@ -175,6 +213,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: 'text',
             text: JSON.stringify(config.getConfigSummary(), null, 2),
           }],
+        }
+      }
+
+      case 'knowledge_role_config': {
+        const parsed = RoleConfigSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const { action } = parsed.data
+
+        switch (action) {
+          case 'get': {
+            const result = await handleGetRoleConfig(storage, parsed.data.role!)
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+          }
+          case 'set': {
+            const result = await handleSetRoleConfig(storage, {
+              role: parsed.data.role!,
+              entry_kn_ids: parsed.data.entry_kn_ids!,
+              spread_depth: parsed.data.spread_depth!,
+              context_budget: parsed.data.context_budget!,
+              priority_tasks: parsed.data.priority_tasks!,
+            })
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+          }
+          case 'list': {
+            const result = await handleListRoles(storage)
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+          }
+          default:
+            return { isError: true, content: [{ type: 'text', text: `Unknown action: ${action}` }] }
         }
       }
 
