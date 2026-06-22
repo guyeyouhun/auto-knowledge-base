@@ -7,8 +7,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { config } from './config.js'
-import { FileStore } from './storage/file-store.js'
-import { LLMClient } from './llm/client.js'
+import { SqliteStore } from './storage/sqlite-store.js'
 import { handleSearch } from './tools/search.js'
 import { handleLearn } from './tools/learn.js'
 import { handleConfirm } from './tools/confirm.js'
@@ -18,8 +17,7 @@ import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema } from './vali
 
 // ── 初始化 ──
 
-const storage = new FileStore(config.knowledgeDir)
-const llm = new LLMClient()
+const storage = new SqliteStore(config.dbPath)
 
 const server = new Server(
   { name: 'auto-knowledge-base', version: '0.1.0' },
@@ -88,7 +86,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'knowledge_status',
-      description: '知识库状态概览：条目数量、类型分布、LLM 连接状态。',
+      description: '知识库状态概览：条目数量、存储类型。',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -96,7 +94,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'knowledge_config',
-      description: '查看 LLM 配置信息（不暴露密钥）。',
+      description: '查看配置信息（不暴露密钥）。',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -162,7 +160,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'knowledge_status': {
-        const result = await handleStatus(storage, llm)
+        const result = await handleStatus(storage)
         return {
           content: [{
             type: 'text',
@@ -197,9 +195,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)
-  console.error('[auto-kb] MCP Server started')
-  console.error(`[auto-kb] LLM: ${llm.configured ? llm.modelName + ' (' + llm.provider + ')' : 'NOT CONFIGURED'}`)
-  console.error(`[auto-kb] Knowledge dir: ${config.knowledgeDir}`)
+  console.error(`[auto-kb] MCP Server started (SQLite)`)
+  console.error(`[auto-kb] Database: ${config.dbPath}`)
 }
 
 main().catch((err) => {
