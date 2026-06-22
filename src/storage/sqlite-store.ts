@@ -109,6 +109,8 @@ export class SqliteStore implements KnowledgeStorage {
 
   async search(params: SearchParams): Promise<KnowledgeEntry[]> {
     const { query, tags, project, limit } = params
+    if (!query.trim()) return []
+
     const terms = query.split(/\s+/).filter(Boolean).map((t) => `"${t}"`).join(' OR ')
     const ftsQuery = terms || query
 
