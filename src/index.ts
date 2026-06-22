@@ -117,7 +117,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const result = await handleSearch(storage, llm, parsed.data)
+        const result = await handleSearch(storage, parsed.data)
         return {
           content: [{
             type: 'text',
@@ -164,7 +164,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const result = await handleRelevant(storage, llm, parsed.data)
+        const result = await handleRelevant(storage, parsed.data)
         return {
           content: [{
             type: 'text',
