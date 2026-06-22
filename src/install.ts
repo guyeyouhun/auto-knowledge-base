@@ -175,11 +175,10 @@ function doInstall(installDir: string, llm: DetectedLLM | null) {
 
   const addArgs: string[] = ['mcp', 'add', 'auto-kb']
   if (llm) {
-    const env: NodeJS.ProcessEnv = { ...process.env }
-    env.LLM_BASE_URL = llm.baseUrl
-    env.LLM_API_KEY = llm.apiKey
-    env.LLM_MODEL = llm.model
-    execFileSync('claude', [...addArgs, '--', 'node', serverPath], { env, stdio: 'pipe', timeout: 30_000 })
+    addArgs.push('-e', `LLM_BASE_URL=${llm.baseUrl}`)
+    addArgs.push('-e', `LLM_API_KEY=${llm.apiKey}`)
+    addArgs.push('-e', `LLM_MODEL=${llm.model}`)
+    execFileSync('claude', [...addArgs, '--', 'node', serverPath], { stdio: 'pipe', timeout: 30_000 })
     log(`LLM 已配置: ${llm.model} (${llm.baseUrl})`)
   } else {
     execFileSync('claude', [...addArgs, '--', 'node', serverPath], { stdio: 'pipe', timeout: 30_000 })
