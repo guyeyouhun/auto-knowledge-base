@@ -204,35 +204,22 @@ function main() {
   if (!opts.doInstall) {
     const detected = probeLLM()
 
-    if (opts.skipLLM || detected.length === 0) {
-      // 没探测到 LLM → 输出选择提示
-      console.log(JSON.stringify({
-        action: 'choice_llm',
-        detected: detected.map(d => ({ id: d.id, name: d.name, baseUrl: d.baseUrl, model: d.model })),
-        prompt: detected.length > 0
-          ? '检测到 LLM 配置，是否使用？'
-          : '未检测到 LLM 配置，请选择：',
-        options: detected.length > 0
-          ? [
-              { id: 'use', label: `使用 ${detected[0].name}` },
-              { id: 'skip', label: '暂不配置 LLM，安装后手动设置' },
-            ]
-          : [
-              { id: 'skip', label: '暂不配置 LLM，安装后手动设置' },
-            ],
-      }))
-      return
+    const options: any[] = []
+    if (detected.length > 0) {
+      options.push({ id: 'use_detected', label: `使用探测到的 LLM（${detected[0].name}）`, detectedId: detected[0].id })
     }
+    options.push(
+      { id: 'custom', label: '手动输入 LLM 配置' },
+      { id: 'skip', label: '暂不配置 LLM，安装后手动设置' },
+    )
 
-    // 探测到 LLM
     console.log(JSON.stringify({
       action: 'choice_llm',
-      message: `检测到 ${detected.length} 个 LLM 配置`,
+      message: detected.length > 0
+        ? `检测到 ${detected.length} 个 LLM 配置`
+        : '未检测到 LLM 配置',
       detected: detected.map(d => ({ id: d.id, name: d.name, baseUrl: d.baseUrl, model: d.model })),
-      options: [
-        { id: 'use_detected', label: `使用 ${detected[0].name}` },
-        { id: 'skip', label: '暂不配置，安装后手动设置' },
-      ],
+      options,
     }))
     return
   }
