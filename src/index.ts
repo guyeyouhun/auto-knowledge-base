@@ -72,17 +72,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'knowledge_relevant',
-      description: '获取与当前任务相关的知识。基于任务描述和关键词返回最匹配的条目。',
+      description: '获取与当前任务相关的知识。基于角色扩散激活、任务描述和关键词返回最匹配的条目。',
       inputSchema: {
         type: 'object',
         properties: {
+          role: { type: 'string', description: '当前 Agent 角色' },
           task: { type: 'string', description: '当前任务描述' },
           keywords: { type: 'array', items: { type: 'string' }, description: '关键词列表' },
           project: { type: 'string', description: '当前项目名' },
-          currentFile: { type: 'string', description: '当前文件路径' },
           maxResults: { type: 'number', description: '最大返回数' },
         },
-        required: ['task'],
+        required: ['role', 'task'],
       },
     },
     {
