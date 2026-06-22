@@ -7,8 +7,8 @@ export async function handleLearn(
   storage: KnowledgeStorage,
   llm: LLMClient,
   params: LearnParams,
-): Promise<{ id: string; title: string; confidence: string }> {
-  const { content, type, title, project, tags, source } = params
+): Promise<{ id: string; title: string; truth: string }> {
+  const { content, type, title, tags, source } = params
 
   // 尝试 LLM 提取
   let extracted = llm.configured ? await llm.extract(content) : null
@@ -20,17 +20,24 @@ export async function handleLearn(
     summary: extracted?.summary || content.slice(0, 200).replace(/\n/g, ' ').trim(),
     content,
     tags: extracted?.tags || tags || [],
-    relations: extracted?.relations || [],
-    projects: extracted?.projects || (project ? [project] : []),
-    confidence: extracted ? 'confirmed' : 'staging',
+    roles: [],
+    tasks: [],
+    truth: extracted ? 'confirmed' : 'staging',
+    provenance: extracted ? 'extracted' : 'unverified',
+    strength: 1,
+    stability: 1,
+    difficulty: 1,
+    temperature: 'warm',
+    practice_count: 0,
+    practice_success: 0,
     source: source || 'knowledge_learn',
-    llmGenerated: !!extracted,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    relations: extracted?.relations || [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   }
 
   await storage.save(entry)
-  return { id: entry.id, title: entry.title, confidence: entry.confidence }
+  return { id: entry.id, title: entry.title, truth: entry.truth }
 }
 
 export async function handleLearnStaged(
@@ -48,13 +55,20 @@ export async function handleLearnStaged(
     summary: extracted?.summary || '',
     content,
     tags: extracted?.tags || [],
-    relations: extracted?.relations || [],
-    projects: extracted?.projects || [],
-    confidence: 'staging',
+    roles: [],
+    tasks: [],
+    truth: 'staging',
+    provenance: extracted ? 'extracted' : 'unverified',
+    strength: 1,
+    stability: 1,
+    difficulty: 1,
+    temperature: 'warm',
+    practice_count: 0,
+    practice_success: 0,
     source: source || 'staged',
-    llmGenerated: !!extracted,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    relations: extracted?.relations || [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   }
 
   await storage.save(entry)

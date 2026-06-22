@@ -1,8 +1,18 @@
-// ── 知识条目类型 ──
+// ── 核心类型 ──
 
 export type KnowledgeType = 'project' | 'pattern' | 'concept' | 'decision'
-export type RelationType = 'references' | 'derives_from' | 'contradicts' | 'implements' | 'generalizes'
-export type Confidence = 'extracted' | 'inferred' | 'confirmed' | 'staging'
+
+export type Truth = 'confirmed' | 'staging' | 'disputed' | 'deprecated'
+
+export type Provenance = 'extracted' | 'inferred' | 'synthesized' | 'user_stated' | 'unverified'
+
+export type RelationType =
+  | 'references'
+  | 'contradicts'
+  | 'supersedes'
+  | 'derives_from'
+  | 'extends'
+  | 'implements'
 
 export interface Relation {
   target: string
@@ -15,38 +25,26 @@ export interface KnowledgeEntry {
   title: string
   summary: string
   content: string
+  code_example?: string
   tags: string[]
+  roles: string[]
+  tasks: string[]
+  truth: Truth
+  provenance: Provenance
+  evidence?: string
+  strength: number
+  stability: number
+  difficulty: number
+  temperature: 'hot' | 'warm' | 'cool' | 'frozen'
+  practice_count: number
+  practice_success: number
+  supersedes?: string
+  superseded_by?: string
+  source?: string
   relations: Relation[]
-  projects: string[]
-  confidence: Confidence
-  source: string
-  llmGenerated: boolean
-  createdAt: string
-  updatedAt: string
-}
-
-export interface KnowledgeIndex {
-  entries: string[]            // 所有条目 ID
-  byTag: Record<string, string[]>
-  byType: Record<KnowledgeType, string[]>
-  byProject: Record<string, string[]>
-}
-
-// ── LLM 客户端类型 ──
-
-export interface LLMConfig {
-  baseUrl: string
-  apiKey: string
-  model: string
-}
-
-export interface ExtractionResult {
-  title: string
-  summary: string
-  tags: string[]
-  type: KnowledgeType
-  relations: Relation[]
-  projects: string[]
+  created_at: string
+  updated_at: string
+  last_accessed?: string
 }
 
 // ── 工具参数类型 ──
@@ -60,17 +58,29 @@ export interface SearchParams {
 
 export interface LearnParams {
   content: string
-  type?: KnowledgeType
   title?: string
-  project?: string
+  summary?: string
   tags?: string[]
+  roles?: string[]
+  tasks?: string[]
+  type?: KnowledgeType
   source?: string
+  relations?: Relation[]
 }
 
 export interface RelevantParams {
+  role: string
   task: string
   keywords?: string[]
   project?: string
-  currentFile?: string
   maxResults?: number
+}
+
+// ── 后端存储索引（保持向后兼容，将在 Task 3 SQLite 迁移中移除）──
+
+export interface KnowledgeIndex {
+  entries: string[]
+  byTag: Record<string, string[]>
+  byType: Record<KnowledgeType, string[]>
+  byProject: Record<string, string[]>
 }

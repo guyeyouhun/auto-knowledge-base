@@ -13,6 +13,7 @@ import { handleSearch } from './tools/search.js'
 import { handleLearn, handleLearnStaged } from './tools/learn.js'
 import { handleRelevant } from './tools/relevant.js'
 import { handleStatus } from './tools/status.js'
+import { SearchSchema, LearnSchema, RelevantSchema } from './validation.js'
 
 // ── 初始化 ──
 
@@ -112,12 +113,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'knowledge_search': {
-        const result = await handleSearch(storage, llm, {
-          query: args?.query as string,
-          tags: args?.tags as string[],
-          project: args?.project as string,
-          limit: args?.limit as number,
-        })
+        const parsed = SearchSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const result = await handleSearch(storage, llm, parsed.data)
         return {
           content: [{
             type: 'text',
@@ -127,14 +127,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'knowledge_learn': {
-        const result = await handleLearn(storage, llm, {
-          content: args?.content as string,
-          type: args?.type as any,
-          title: args?.title as string,
-          project: args?.project as string,
-          tags: args?.tags as string[],
-          source: args?.source as string,
-        })
+        const parsed = LearnSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const result = await handleLearn(storage, llm, parsed.data)
         return {
           content: [{
             type: 'text',
@@ -144,11 +141,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'knowledge_learn_staged': {
+        const parsed = LearnSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
         const result = await handleLearnStaged(
           storage,
           llm,
-          args?.content as string,
-          args?.source as string,
+          parsed.data.content,
+          parsed.data.source,
         )
         return {
           content: [{
@@ -159,13 +160,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'knowledge_relevant': {
-        const result = await handleRelevant(storage, llm, {
-          task: args?.task as string,
-          keywords: args?.keywords as string[],
-          project: args?.project as string,
-          currentFile: args?.currentFile as string,
-          maxResults: args?.maxResults as number,
-        })
+        const parsed = RelevantSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const result = await handleRelevant(storage, llm, parsed.data)
         return {
           content: [{
             type: 'text',

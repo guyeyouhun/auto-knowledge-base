@@ -1,5 +1,16 @@
 import { config } from '../config.js'
-import type { ExtractionResult, KnowledgeType, RelationType } from '../types.js'
+import type { KnowledgeType, RelationType } from '../types.js'
+import type { Relation } from '../types.js'
+
+// Local type for LLM extract response — replaces removed ExtractionResult
+interface ExtractResult {
+  title: string
+  summary: string
+  tags: string[]
+  type: KnowledgeType
+  relations: Relation[]
+  projects: string[]
+}
 
 const AI_ASSISTANT = `You are a knowledge extraction and analysis engine. You analyze content and produce structured output.
 Always respond with valid JSON only, no markdown formatting, no code blocks.
@@ -212,7 +223,7 @@ export class LLMClient {
 
   // ── 提取结构化知识 ──
 
-  async extract(content: string): Promise<ExtractionResult | null> {
+  async extract(content: string): Promise<ExtractResult | null> {
     if (!this.configured) return null
 
     try {
@@ -221,7 +232,7 @@ export class LLMClient {
         { role: 'user', content },
       ])
 
-      const result = this.parseJSON<ExtractionResult | null>(raw, null)
+      const result = this.parseJSON<ExtractResult | null>(raw, null)
 
       if (!result || !result.title) return null
 

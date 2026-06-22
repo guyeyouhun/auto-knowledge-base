@@ -52,7 +52,7 @@ export class FileStore implements KnowledgeStorage {
   // ── 核心 CRUD ──
 
   async save(entry: KnowledgeEntry): Promise<void> {
-    const dir = entry.confidence === 'staging' ? 'staging' : 'entities'
+    const dir = entry.truth === 'staging' ? 'staging' : 'entities'
     const filePath = join(this.root, dir, `${entry.id}.json`)
     writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf-8')
 
@@ -70,13 +70,6 @@ export class FileStore implements KnowledgeStorage {
       if (!this.index.byTag[tag]) this.index.byTag[tag] = []
       if (!this.index.byTag[tag].includes(entry.id)) {
         this.index.byTag[tag].push(entry.id)
-      }
-    }
-    // 按项目
-    for (const proj of entry.projects) {
-      if (!this.index.byProject[proj]) this.index.byProject[proj] = []
-      if (!this.index.byProject[proj].includes(entry.id)) {
-        this.index.byProject[proj].push(entry.id)
       }
     }
     this.saveIndex()
@@ -113,9 +106,6 @@ export class FileStore implements KnowledgeStorage {
         }
         for (const tag of Object.keys(this.index.byTag)) {
           this.index.byTag[tag] = this.index.byTag[tag].filter(e => e !== id)
-        }
-        for (const proj of Object.keys(this.index.byProject)) {
-          this.index.byProject[proj] = this.index.byProject[proj].filter(e => e !== id)
         }
         this.saveIndex()
         return true
