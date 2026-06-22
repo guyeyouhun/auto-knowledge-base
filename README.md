@@ -106,5 +106,6 @@ npm run test:watch    # 开发模式
 ---
 
 <p align="center">
+  <a href="CONTRIBUTING.md">贡献指南</a> ·
   <a href="README.zh-CN.md">简体中文</a>
 </p>
