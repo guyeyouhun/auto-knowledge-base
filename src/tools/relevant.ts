@@ -49,5 +49,10 @@ export async function handleRelevant(
     })
 
   scored.sort((a, b) => b.score - a.score)
-  return { entries: scored.slice(0, limit).map(s => s.entry) }
+  const result = scored.slice(0, limit).map(s => s.entry)
+
+  // Record access for returned entries
+  await Promise.all(result.map(e => storage.recordAccess(e.id)))
+
+  return { entries: result }
 }

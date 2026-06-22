@@ -39,4 +39,10 @@ export interface KnowledgeStorage {
 
   /** 获取指定实体的关系（双向查询） */
   getRelations(id: string): Promise<{ source_kn: string; target_kn: string; rel_type: string }[]>
+
+  /** 记录一次访问（增加 practice_count，更新 last_accessed） */
+  recordAccess(id: string): Promise<void>
+
+  /** 记录一次练习结果（成功/失败），使用 FSRS 公式更新 strength/stability/difficulty */
+  recordPractice(id: string, success: boolean): Promise<void>
 }

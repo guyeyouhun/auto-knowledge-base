@@ -4,6 +4,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import type { KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
 import type { KnowledgeStorage } from './interface.js'
+import { applySuccess, applyFailure, updateTemperature } from '../fsrs.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -222,6 +223,39 @@ export class SqliteStore implements KnowledgeStorage {
     const out = this.db.prepare('SELECT source_kn, target_kn, rel_type FROM relations WHERE source_kn = ?').all(id) as any[]
     const back = this.db.prepare('SELECT source_kn, target_kn, rel_type FROM relations WHERE target_kn = ?').all(id) as any[]
     return [...out, ...back]
+  }
+
+  async recordAccess(id: string): Promise<void> {
+    this.db.prepare(`
+      UPDATE knowledge SET
+        practice_count = practice_count + 1,
+        last_accessed = datetime('now')
+      WHERE id = ?
+    `).run(id)
+  }
+
+  async recordPractice(id: string, success: boolean): Promise<void> {
+    const row = this.db.prepare('SELECT * FROM knowledge WHERE id = ?').get(id) as any
+    if (!row) return
+
+    const params = {
+      strength: row.strength,
+      stability: row.stability,
+      difficulty: row.difficulty,
+    }
+    const updated = success ? applySuccess(params) : applyFailure(params)
+    const temperature = updateTemperature(updated.strength)
+
+    this.db.prepare(`
+      UPDATE knowledge SET
+        practice_count = practice_count + 1,
+        practice_success = practice_success + ?,
+        strength = ?, stability = ?, difficulty = ?,
+        temperature = ?,
+        last_accessed = datetime('now'),
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).run(success ? 1 : 0, updated.strength, updated.stability, updated.difficulty, temperature, id)
   }
 
   close(): void {
