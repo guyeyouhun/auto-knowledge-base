@@ -62,3 +62,7 @@ export const AuditSchema = z.object({
   limit: z.number().int().positive().optional(),
   operation: z.string().optional(),
 })
+
+export const ImportSchema = z.object({
+  entries: z.array(z.any()),
+})

@@ -187,6 +187,35 @@ export class SqliteStore implements KnowledgeStorage {
     return { ok: true, count }
   }
 
+  async getStats(): Promise<{
+    byTruth: Record<string, number>
+    byTemperature: Record<string, number>
+    relationCount: number
+    embeddingCount: number
+    dbSizeBytes: number
+  }> {
+    const byTruth: Record<string, number> = {}
+    const byTemp: Record<string, number> = {}
+
+    const truthRows = this.db.prepare('SELECT truth, COUNT(*) as c FROM knowledge GROUP BY truth').all() as any[]
+    for (const r of truthRows) byTruth[r.truth] = r.c
+
+    const tempRows = this.db.prepare('SELECT temperature, COUNT(*) as c FROM knowledge GROUP BY temperature').all() as any[]
+    for (const r of tempRows) byTemp[r.temperature] = r.c
+
+    const relCount = (this.db.prepare('SELECT COUNT(*) as c FROM relations').get() as any).c
+    const embCount = (this.db.prepare('SELECT COUNT(*) as c FROM knowledge_embeddings').get() as any).c
+
+    const dbPath = this.db.name
+    let dbSizeBytes = 0
+    try {
+      const { statSync } = await import('fs')
+      dbSizeBytes = statSync(dbPath).size
+    } catch { /* ignore */ }
+
+    return { byTruth, byTemperature: byTemp, relationCount: relCount, embeddingCount: embCount, dbSizeBytes }
+  }
+
   async getRoleConfig(role: string): Promise<RoleConfig | null> {
     const row = this.db.prepare('SELECT * FROM role_config WHERE role = ?').get(role) as any
     if (!row) return null

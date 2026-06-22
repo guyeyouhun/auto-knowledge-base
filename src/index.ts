@@ -16,7 +16,8 @@ import { handleStatus } from './tools/status.js'
 import { handleGetRoleConfig, handleSetRoleConfig, handleListRoles } from './tools/role-config.js'
 import { handleDecaySweep } from './tools/maintenance.js'
 import { handleAuditQuery } from './tools/audit.js'
-import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema, AuditSchema } from './validation.js'
+import { handleExport, handleImport } from './tools/ops.js'
+import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema, AuditSchema, ImportSchema } from './validation.js'
 
 // ── 初始化 ──
 
@@ -178,6 +179,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['action'],
       },
     },
+    {
+      name: 'knowledge_export',
+      description: '导出全部知识条目为 JSON。不包含嵌入向量。',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'knowledge_import',
+      description: '从 JSON 导入知识条目。跳过已存在的 ID（不覆盖）。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          entries: {
+            type: 'array',
+            items: { type: 'object' },
+            description: '知识条目数组',
+          },
+        },
+        required: ['entries'],
+      },
+    },
   ],
 }))
 
@@ -317,6 +341,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const result = await handleAuditQuery(storage, parsed.data.limit, parsed.data.operation)
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+      }
+
+      case 'knowledge_export': {
+        const exportResult = await handleExport(storage)
+        await storage.logAudit(null, 'export', `count: ${exportResult.count}`)
+        return { content: [{ type: 'text', text: JSON.stringify(exportResult, null, 2) }] }
+      }
+
+      case 'knowledge_import': {
+        const parsed = ImportSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const importResult = await handleImport(storage, parsed.data.entries)
+        await storage.logAudit(null, 'import', `imported: ${importResult.imported}, skipped: ${importResult.skipped}`)
+        return { content: [{ type: 'text', text: JSON.stringify(importResult, null, 2) }] }
       }
 
       default:

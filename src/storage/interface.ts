@@ -28,6 +28,15 @@ export interface KnowledgeStorage {
   /** 健康检查 */
   health(): Promise<{ ok: boolean; count: number }>
 
+  /** 获取详细统计信息 */
+  getStats(): Promise<{
+    byTruth: Record<string, number>
+    byTemperature: Record<string, number>
+    relationCount: number
+    embeddingCount: number
+    dbSizeBytes: number
+  }>
+
   /** 获取角色配置 */
   getRoleConfig(role: string): Promise<RoleConfig | null>
 
