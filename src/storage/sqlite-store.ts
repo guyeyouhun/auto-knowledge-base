@@ -6,6 +6,8 @@ import type { KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.j
 import type { KnowledgeStorage } from './interface.js'
 import { applySuccess, applyFailure, updateTemperature } from '../fsrs.js'
 
+type UpdatableFields = Pick<KnowledgeEntry, 'strength' | 'stability' | 'difficulty' | 'temperature' | 'truth'>
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export class SqliteStore implements KnowledgeStorage {
@@ -258,7 +260,7 @@ export class SqliteStore implements KnowledgeStorage {
     `).run(success ? 1 : 0, updated.strength, updated.stability, updated.difficulty, temperature, id)
   }
 
-  async updateParams(id: string, params: any): Promise<void> {
+  async updateParams(id: string, params: Partial<UpdatableFields>): Promise<void> {
     const sets: string[] = []
     const values: any[] = []
     for (const [key, val] of Object.entries(params)) {
