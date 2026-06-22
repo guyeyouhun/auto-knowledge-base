@@ -225,16 +225,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         switch (action) {
           case 'get': {
-            const result = await handleGetRoleConfig(storage, parsed.data.role!)
+            const result = await handleGetRoleConfig(storage, parsed.data.role)
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
           }
           case 'set': {
             const result = await handleSetRoleConfig(storage, {
-              role: parsed.data.role!,
-              entry_kn_ids: parsed.data.entry_kn_ids!,
-              spread_depth: parsed.data.spread_depth!,
-              context_budget: parsed.data.context_budget!,
-              priority_tasks: parsed.data.priority_tasks!,
+              role: parsed.data.role,
+              entry_kn_ids: parsed.data.entry_kn_ids,
+              spread_depth: parsed.data.spread_depth,
+              context_budget: parsed.data.context_budget,
+              priority_tasks: parsed.data.priority_tasks,
             })
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
           }

@@ -34,14 +34,18 @@ export const ConfirmSchema = z.object({
   id: z.string().uuid('valid knowledge ID required'),
 })
 
-export const RoleConfigSchema = z.object({
-  action: z.enum(['get', 'set', 'list']),
-  role: z.string().min(1).optional(),
-  entry_kn_ids: z.array(z.string()).optional(),
-  spread_depth: z.number().int().min(1).optional(),
-  context_budget: z.number().int().min(1).optional(),
-  priority_tasks: z.array(z.string()).optional(),
-})
+export const RoleConfigSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('get'), role: z.string().min(1) }),
+  z.object({
+    action: z.literal('set'),
+    role: z.string().min(1),
+    entry_kn_ids: z.array(z.string()),
+    spread_depth: z.number().int().min(1),
+    context_budget: z.number().int().min(1),
+    priority_tasks: z.array(z.string()),
+  }),
+  z.object({ action: z.literal('list') }),
+])
 
 export const SearchResultSchema = z.object({
   entries: z.array(z.any()),
