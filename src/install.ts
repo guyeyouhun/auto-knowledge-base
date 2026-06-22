@@ -116,7 +116,15 @@ function doInstall(installDir: string) {
     timeout: 120_000,
   })
 
-  // 5. 注册 MCP Server（不传入 LLM 环境变量，可在安装后配置）
+  // 5. 编译原生模块（better-sqlite3）
+  log('编译原生模块...')
+  execSync('npm rebuild better-sqlite3', {
+    cwd: installDir,
+    stdio: 'pipe',
+    timeout: 60_000,
+  })
+
+  // 6. 注册 MCP Server
   const serverPath = join(installDir, 'dist', 'index.js')
   log('注册 MCP Server...')
   execFileSync('claude', ['mcp', 'add', 'auto-kb', '--', 'node', serverPath], {
