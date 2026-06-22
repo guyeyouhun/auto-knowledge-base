@@ -36,4 +36,7 @@ export interface KnowledgeStorage {
 
   /** 列出所有已配置的角色 */
   listRoles(): Promise<string[]>
+
+  /** 获取指定实体的关系（双向查询） */
+  getRelations(id: string): Promise<{ source_kn: string; target_kn: string; rel_type: string }[]>
 }

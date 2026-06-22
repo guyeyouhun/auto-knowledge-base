@@ -218,6 +218,12 @@ export class SqliteStore implements KnowledgeStorage {
     return (this.db.prepare('SELECT role FROM role_config').all() as any[]).map(r => r.role)
   }
 
+  async getRelations(id: string): Promise<{ source_kn: string; target_kn: string; rel_type: string }[]> {
+    const out = this.db.prepare('SELECT source_kn, target_kn, rel_type FROM relations WHERE source_kn = ?').all(id) as any[]
+    const back = this.db.prepare('SELECT source_kn, target_kn, rel_type FROM relations WHERE target_kn = ?').all(id) as any[]
+    return [...out, ...back]
+  }
+
   close(): void {
     this.db.close()
   }
