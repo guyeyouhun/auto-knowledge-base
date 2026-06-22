@@ -97,3 +97,51 @@ describe('handleRelevant', () => {
     expect(entries.length).toBeLessThanOrEqual(2)
   })
 })
+
+describe('handleSearch with hybrid vector search', () => {
+  let store: SqliteStore
+  let tempDir: string
+  // A simple mock LLM that returns a fixed embedding
+  const mockLLM = {
+    configured: true,
+    embed: async (_text: string) => [0.1, 0.2, 0.3],
+  } as any
+
+  beforeEach(() => {
+    tempDir = createTempDir()
+    store = new SqliteStore(join(tempDir, 'test.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTempDir(tempDir)
+  })
+
+  it('falls back to BM25 when useVector is false', async () => {
+    await store.save(makeConfirmedEntry({ title: 'React Hooks', content: 'useState' }))
+    const result = await handleSearch(store, { query: 'react' }, mockLLM, false)
+    expect(result.entries.length).toBe(1)
+  })
+
+  it('uses hybrid search when useVector is true and embeddings exist', async () => {
+    const entry = makeConfirmedEntry({ title: 'React Hooks', content: 'useState' })
+    await store.save(entry)
+    // Save a matching embedding
+    await store.saveEmbedding(entry.id, new Float32Array([0.1, 0.2, 0.3]), 'test-model')
+    const result = await handleSearch(store, { query: 'react' }, mockLLM, true)
+    expect(result.entries.length).toBe(1)
+  })
+
+  it('falls back to BM25 when no embeddings exist', async () => {
+    await store.save(makeConfirmedEntry({ title: 'React Hooks', content: 'useState' }))
+    const result = await handleSearch(store, { query: 'react' }, mockLLM, true)
+    expect(result.entries.length).toBe(1)
+  })
+
+  it('falls back to BM25 when LLM is not configured', async () => {
+    await store.save(makeConfirmedEntry({ title: 'React Hooks', content: 'useState' }))
+    const noLLM = { configured: false } as any
+    const result = await handleSearch(store, { query: 'react' }, noLLM, true)
+    expect(result.entries.length).toBe(1)
+  })
+})
