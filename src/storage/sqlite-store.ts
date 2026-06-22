@@ -26,7 +26,11 @@ export class SqliteStore implements KnowledgeStorage {
   }
 
   private migrate(): void {
-    const schemaPath = join(__dirname, 'schema.sql')
+    let schemaPath = join(__dirname, 'schema.sql')
+    if (!existsSync(schemaPath)) {
+      // Fallback: look in src/storage/ (development mode, or missing build copy)
+      schemaPath = join(__dirname, '..', '..', 'src', 'storage', 'schema.sql')
+    }
     const schema = readFileSync(schemaPath, 'utf-8')
     this.db.exec(schema)
   }

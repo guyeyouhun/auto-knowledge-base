@@ -18,6 +18,7 @@ import { handleDecaySweep } from './tools/maintenance.js'
 import { handleAuditQuery } from './tools/audit.js'
 import { handleExport, handleImport } from './tools/ops.js'
 import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema, AuditSchema, ImportSchema } from './validation.js'
+import type { KnowledgeEntry } from './types.js'
 
 // ── 初始化 ──
 
@@ -354,7 +355,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const importResult = await handleImport(storage, parsed.data.entries)
+        const importResult = await handleImport(storage, parsed.data.entries as KnowledgeEntry[])
         await storage.logAudit(null, 'import', `imported: ${importResult.imported}, skipped: ${importResult.skipped}`)
         return { content: [{ type: 'text', text: JSON.stringify(importResult, null, 2) }] }
       }
