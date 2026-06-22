@@ -1,10 +1,90 @@
 import type { KnowledgeStorage } from '../storage/interface.js'
 import type { SearchParams, KnowledgeEntry } from '../types.js'
+import type { LLMClient } from '../llm/client.js'
+import { generateEmbedding, cosineSimilarity } from '../embedding.js'
+
+const RRF_K = 60
+
+/**
+ * Perform reciprocal rank fusion between BM25 and vector search results.
+ */
+function rrfMerge(
+  bm25Entries: KnowledgeEntry[],
+  vectorIds: string[],
+): KnowledgeEntry[] {
+  const entryMap = new Map<string, KnowledgeEntry>()
+  bm25Entries.forEach((e, i) => entryMap.set(e.id, e))
+  vectorIds.forEach((id) => {
+    if (!entryMap.has(id)) {
+      // Vector-only results are not in entryMap, skip (we need the full entry)
+    }
+  })
+
+  // Compute RRF score for BM25 results
+  const scores = new Map<string, number>()
+  bm25Entries.forEach((e, i) => {
+    const bm25Rank = i
+    const vectorRank = vectorIds.indexOf(e.id)
+    const vRank = vectorRank === -1 ? vectorIds.length + 1 : vectorRank
+    const score = 0.5 * (1 / (bm25Rank + RRF_K)) + 0.5 * (1 / (vRank + RRF_K))
+    scores.set(e.id, score)
+  })
+
+  // Add scores for vector-only entries
+  vectorIds.forEach((id, i) => {
+    if (!scores.has(id)) {
+      const bm25Rank = bm25Entries.length + 1
+      const score = 0.5 * (1 / (bm25Rank + RRF_K)) + 0.5 * (1 / (i + RRF_K))
+      scores.set(id, score)
+    }
+  })
+
+  // Sort by RRF score descending
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id]) => {
+      const entry = entryMap.get(id)
+      if (entry) return entry
+      // Fallback: try to find the id in bm25 entries again
+      return bm25Entries.find((e) => e.id === id)!
+    })
+    .filter(Boolean)
+}
 
 export async function handleSearch(
   storage: KnowledgeStorage,
   params: SearchParams,
+  llm?: LLMClient,
+  useVector?: boolean,
 ): Promise<{ entries: KnowledgeEntry[]; synthesis: string }> {
-  const entries = await storage.search(params)
-  return { entries, synthesis: '' }
+  const bm25Entries = await storage.search(params)
+
+  if (useVector && llm?.configured && bm25Entries.length > 0) {
+    try {
+      const queryVector = await generateEmbedding(params.query, llm)
+      if (queryVector) {
+        const allEmbeddings = await storage.getAllEmbeddings()
+        if (allEmbeddings.length > 0) {
+          // Compute cosine similarity for each stored embedding
+          const scored = allEmbeddings
+            .map((e) => ({
+              id: e.kn_id,
+              similarity: cosineSimilarity(queryVector, e.embedding),
+            }))
+            .sort((a, b) => b.similarity - a.similarity)
+            .slice(0, 5)
+            .map((e) => e.id)
+
+          if (scored.length > 0) {
+            const merged = rrfMerge(bm25Entries, scored)
+            return { entries: merged, synthesis: '' }
+          }
+        }
+      }
+    } catch {
+      // Silently fall back to BM25-only
+    }
+  }
+
+  return { entries: bm25Entries, synthesis: '' }
 }

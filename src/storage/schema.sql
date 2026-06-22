@@ -95,3 +95,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_kn ON audit_log(kn_id);
 CREATE INDEX IF NOT EXISTS idx_audit_op ON audit_log(operation);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(timestamp);
+
+CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+  kn_id TEXT PRIMARY KEY REFERENCES knowledge(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

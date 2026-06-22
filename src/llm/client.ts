@@ -294,4 +294,30 @@ export class LLMClient {
       return entries.map(e => ({ id: e.id, relevance: 0.3, reason: '' }))
     }
   }
+
+  // ── 生成嵌入向量 ──
+
+  async embed(text: string): Promise<number[] | null> {
+    if (!this.configured) return null
+
+    const url = `${this.baseUrl.replace(/\/+$/, '')}/embeddings`
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          input: text,
+        }),
+      })
+      if (!res.ok) return null
+      const data = (await res.json()) as any
+      return data.data?.[0]?.embedding || null
+    } catch {
+      return null
+    }
+  }
 }

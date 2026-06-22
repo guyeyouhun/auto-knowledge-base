@@ -292,4 +292,39 @@ export class SqliteStore implements KnowledgeStorage {
     params.push(limit)
     return this.db.prepare(sql).all(...params) as AuditEntry[]
   }
+
+  async saveEmbedding(kn_id: string, embedding: Float32Array, model: string): Promise<void> {
+    this.db.prepare(`
+      INSERT INTO knowledge_embeddings(kn_id, embedding, model)
+      VALUES (?, ?, ?)
+      ON CONFLICT(kn_id) DO UPDATE SET
+        embedding = excluded.embedding,
+        model = excluded.model,
+        updated_at = datetime('now')
+    `).run(kn_id, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), model)
+  }
+
+  async getEmbedding(kn_id: string): Promise<{ embedding: Float32Array; model: string } | null> {
+    const row = this.db.prepare(
+      'SELECT embedding, model FROM knowledge_embeddings WHERE kn_id = ?',
+    ).get(kn_id) as any
+    if (!row) return null
+    const buf: Buffer = row.embedding
+    return {
+      embedding: new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / Float32Array.BYTES_PER_ELEMENT),
+      model: row.model,
+    }
+  }
+
+  async getAllEmbeddings(): Promise<Array<{ kn_id: string; embedding: Float32Array }>> {
+    return (this.db.prepare('SELECT kn_id, embedding FROM knowledge_embeddings').all() as any[]).map(
+      (r: any) => {
+        const buf: Buffer = r.embedding
+        return {
+          kn_id: r.kn_id,
+          embedding: new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / Float32Array.BYTES_PER_ELEMENT),
+        }
+      },
+    )
+  }
 }

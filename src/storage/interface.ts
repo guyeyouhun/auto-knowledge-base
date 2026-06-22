@@ -54,4 +54,13 @@ export interface KnowledgeStorage {
 
   /** 查询审计日志，可按操作类型过滤，默认返回最近 50 条 */
   queryAudit(limit?: number, operation?: string): Promise<AuditEntry[]>
+
+  /** 保存嵌入向量 */
+  saveEmbedding(kn_id: string, embedding: Float32Array, model: string): Promise<void>
+
+  /** 获取指定条目的嵌入向量 */
+  getEmbedding(kn_id: string): Promise<{ embedding: Float32Array; model: string } | null>
+
+  /** 获取所有嵌入向量 */
+  getAllEmbeddings(): Promise<Array<{ kn_id: string; embedding: Float32Array }>>
 }
