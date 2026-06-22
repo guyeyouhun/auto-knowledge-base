@@ -75,12 +75,3 @@ export interface RelevantParams {
   project?: string
   maxResults?: number
 }
-
-// ── 后端存储索引（保持向后兼容，将在 Task 3 SQLite 迁移中移除）──
-
-export interface KnowledgeIndex {
-  entries: string[]
-  byTag: Record<string, string[]>
-  byType: Record<KnowledgeType, string[]>
-  byProject: Record<string, string[]>
-}
