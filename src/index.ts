@@ -10,10 +10,11 @@ import { config } from './config.js'
 import { FileStore } from './storage/file-store.js'
 import { LLMClient } from './llm/client.js'
 import { handleSearch } from './tools/search.js'
-import { handleLearn, handleLearnStaged } from './tools/learn.js'
+import { handleLearn } from './tools/learn.js'
+import { handleConfirm } from './tools/confirm.js'
 import { handleRelevant } from './tools/relevant.js'
 import { handleStatus } from './tools/status.js'
-import { SearchSchema, LearnSchema, RelevantSchema } from './validation.js'
+import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema } from './validation.js'
 
 // ── 初始化 ──
 
@@ -45,7 +46,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'knowledge_learn',
-      description: '导入知识到知识库。LLM 会自动提取结构化信息（标题、摘要、标签、关系）。',
+      description: '导入知识到知识库。自动检测重复，始终写入 staging 区域。',
       inputSchema: {
         type: 'object',
         properties: {
@@ -60,15 +61,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: 'knowledge_learn_staged',
-      description: '暂存待确认知识。存入 staging 区域，需要确认后才正式入库。',
+      name: 'knowledge_confirm',
+      description: '将 staging 知识升级为 confirmed。确认后该知识参与检索。',
       inputSchema: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: '知识内容' },
-          source: { type: 'string', description: '来源描述' },
+          id: { type: 'string', description: '知识条目 ID' },
         },
-        required: ['content'],
+        required: ['id'],
       },
     },
     {
@@ -131,7 +131,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const result = await handleLearn(storage, llm, parsed.data)
+        const result = await handleLearn(storage, parsed.data)
         return {
           content: [{
             type: 'text',
@@ -140,23 +140,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'knowledge_learn_staged': {
-        const parsed = LearnSchema.safeParse(args)
-        if (!parsed.success) {
-          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
-        }
-        const result = await handleLearnStaged(
-          storage,
-          llm,
-          parsed.data.content,
-          parsed.data.source,
-        )
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        }
+      case 'knowledge_confirm': {
+        const parsed = ConfirmSchema.safeParse(args)
+        if (!parsed.success) return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        const result = await handleConfirm(storage, parsed.data.id)
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
       }
 
       case 'knowledge_relevant': {
