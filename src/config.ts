@@ -41,6 +41,8 @@ export const config = {
 
   knowledgeDir: process.env.KNOWLEDGE_DIR || join(PROJECT_ROOT, 'knowledge'),
 
+  dbPath: process.env.KNOWLEDGE_DB_PATH || join(PROJECT_ROOT, 'knowledge', 'knowledge.db'),
+
   isLLMConfigured(): boolean {
     return !!(this.llm.baseUrl && this.llm.apiKey && this.llm.model)
   },
