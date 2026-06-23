@@ -49,6 +49,8 @@ export interface KnowledgeEntry {
 
 // ── 工具参数类型 ──
 
+export type LLMStatus = 'active' | 'degraded' | 'unconfigured'
+
 export interface SearchParams {
   query: string
   tags?: string[]
