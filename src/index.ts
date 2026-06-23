@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { config } from './config.js'
 import { SqliteStore } from './storage/sqlite-store.js'
+import { LLMClient } from './llm/client.js'
 import { handleSearch } from './tools/search.js'
 import { handleLearn } from './tools/learn.js'
 import { handleConfirm } from './tools/confirm.js'
@@ -23,6 +24,11 @@ import type { KnowledgeEntry } from './types.js'
 // ── 初始化 ──
 
 const storage = new SqliteStore(config.dbPath)
+
+const llm = config.isLLMConfigured() ? new LLMClient() : undefined
+if (llm) {
+  console.error(`[auto-kb] LLM configured: ${llm.modelName} (${llm.provider})`)
+}
 
 const server = new Server(
   { name: 'auto-knowledge-base', version: '0.1.0' },
@@ -218,7 +224,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const result = await handleSearch(storage, parsed.data)
+        const result = await handleSearch(storage, parsed.data, llm, true)
         await storage.logAudit(null, 'search', `query: ${parsed.data.query}`)
         return {
           content: [{
@@ -233,7 +239,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const result = await handleLearn(storage, parsed.data)
+        const result = await handleLearn(storage, parsed.data, llm)
         await storage.logAudit(result.id, 'learn', `title: ${result.title}`)
         return {
           content: [{
@@ -256,7 +262,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!parsed.success) {
           return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
         }
-        const result = await handleRelevant(storage, parsed.data)
+        const result = await handleRelevant(storage, parsed.data, llm)
         await storage.logAudit(null, 'relevant', `role: ${parsed.data.role}, task: ${parsed.data.task.slice(0, 50)}`)
         return {
           content: [{
