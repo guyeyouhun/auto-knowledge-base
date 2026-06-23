@@ -218,27 +218,25 @@ describe('handleRelevant', () => {
     // entry-node has activation > 0, so it should be ranked first
     expect(entries[0].id).toBe('entry-node')
   })
-})
 
-describe('handleRelevant with LLM ranking', () => {
-  let store: SqliteStore
-  let tempDir: string
+  it('handles role config with no entry_kn_ids gracefully', async () => {
+    await store.setRoleConfig(makeRoleConfig({
+      role: 'developer',
+      entry_kn_ids: [],
+    }))
+    await store.save(makeEntry('kn-1', { title: 'Data', content: 'some data' }))
+    const { entries } = await handleRelevant(store, { role: 'developer', task: 'data' })
+    expect(entries.length).toBe(1)
+    expect(entries[0].id).toBe('kn-1')
+  })
+
+  // ─── LLM ranking ───
 
   const mockLLM = {
     configured: true,
     rankRelevant: async (_task: string, _keywords: string[], entries: any[]) =>
       entries.map((e, i) => ({ id: e.id, relevance: 1 - i * 0.1, reason: 'test' })),
   } as any
-
-  beforeEach(() => {
-    tempDir = createTempDir()
-    store = new SqliteStore(join(tempDir, 'test.db'))
-  })
-
-  afterEach(() => {
-    store.close()
-    cleanupTempDir(tempDir)
-  })
 
   it('re-ranks entries with LLM when configured', async () => {
     await store.save(makeEntry('kn-1', { title: 'React Hooks', roles: [], content: 'react hooks' }))
