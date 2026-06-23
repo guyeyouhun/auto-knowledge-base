@@ -49,7 +49,7 @@ describe('MCP Server Protocol', () => {
 
   it('responds to tools/list with all registered tools', async () => {
     child = spawn('node', [join(PROJECT_ROOT, 'dist', 'index.js')], {
-      env: { ...process.env, KNOWLEDGE_DB_PATH: join(tmpDbDir, 'test.db') },
+      env: { ...process.env, KNOWLEDGE_DB_PATH: join(tmpDbDir, 'test.db'), LLM_BASE_URL: '' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
@@ -75,7 +75,7 @@ describe('MCP Server Protocol', () => {
 
   it('responds to tools/call with knowledge_learn and then knowledge_confirm', async () => {
     child = spawn('node', [join(PROJECT_ROOT, 'dist', 'index.js')], {
-      env: { ...process.env, KNOWLEDGE_DB_PATH: join(tmpDbDir, 'test2.db') },
+      env: { ...process.env, KNOWLEDGE_DB_PATH: join(tmpDbDir, 'test2.db'), LLM_BASE_URL: '' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
