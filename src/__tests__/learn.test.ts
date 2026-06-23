@@ -80,3 +80,67 @@ describe('handleConfirm', () => {
     expect(result.success).toBe(false)
   })
 })
+
+describe('handleLearn with LLM extraction', () => {
+  let store: SqliteStore
+  let tempDir: string
+
+  const mockLLM = {
+    configured: true,
+    extract: async (_content: string) => ({
+      title: 'LLM Title',
+      summary: 'LLM summary',
+      tags: ['llm', 'auto'],
+      type: 'concept',
+      relations: [],
+      projects: [],
+    }),
+    embed: async (_text: string) => [0.1, 0.2, 0.3],
+    modelName: 'test-model',
+  } as any
+
+  beforeEach(() => {
+    tempDir = createTempDir()
+    store = new SqliteStore(join(tempDir, 'test.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTempDir(tempDir)
+  })
+
+  it('uses LLM extraction when no title or tags provided', async () => {
+    const result = await handleLearn(store, { content: 'some knowledge content' }, mockLLM)
+    expect(result.title).toBe('LLM Title')
+    expect(result.llmStatus).toBe('active')
+  })
+
+  it('user-provided title overrides LLM extraction', async () => {
+    const result = await handleLearn(store, { content: 'some content', title: 'Manual Title' }, mockLLM)
+    expect(result.title).toBe('Manual Title')
+    expect(result.llmStatus).toBe('active')
+  })
+
+  it('user-provided params fall back to LLM when title is empty', async () => {
+    const result = await handleLearn(store, { content: 'some content', tags: ['manual'] }, mockLLM)
+    expect(result.title).toBe('LLM Title')
+    expect(result.llmStatus).toBe('active')
+  })
+
+  it('degrades gracefully when LLM extraction fails', async () => {
+    const brokenLLM = {
+      configured: true,
+      extract: async () => { throw new Error('API error') },
+    } as any
+    const result = await handleLearn(store, { content: 'fallback content' }, brokenLLM)
+    expect(result.title).toBe('fallback content')
+    expect(result.llmStatus).toBe('degraded')
+  })
+
+  it('uses defaults when LLM not configured', async () => {
+    const noLLM = { configured: false } as any
+    const result = await handleLearn(store, { content: 'plain content' }, noLLM)
+    expect(result.title).toBe('plain content')
+    expect(result.llmStatus).toBe('unconfigured')
+  })
+})

@@ -1,38 +1,61 @@
 import { randomUUID } from 'crypto'
 import type { KnowledgeStorage } from '../storage/interface.js'
-import type { KnowledgeEntry, LearnParams } from '../types.js'
+import type { KnowledgeEntry, LearnParams, LLMStatus } from '../types.js'
+import type { LLMClient } from '../llm/client.js'
+import { generateEmbedding } from '../embedding.js'
 
 export async function handleLearn(
   storage: KnowledgeStorage,
   params: LearnParams,
-): Promise<{ id: string; title: string; dedup: boolean }> {
+  llm?: LLMClient,
+): Promise<{ id: string; title: string; dedup: boolean; llmStatus: LLMStatus }> {
   const { content, title, summary, tags, roles, tasks, type, source, relations, contradicts } = params
 
-  // 1. Dedup check — find similar entries
-  const similar = await storage.findSimilar(title || content.slice(0, 60), content)
+  // 1. LLM extraction (optional enhancement)
+  let llmStatus: LLMStatus = llm?.configured ? 'degraded' : 'unconfigured'
+  let extractedTitle = title
+  let extractedTags = tags
+  let extractedSummary = summary
+  let extractedType = type
 
-  // If very similar, update existing instead of creating new
-  if (similar.length > 0 && title) {
-    const exact = similar.find(e => e.title.toLowerCase() === title.toLowerCase())
+  if (llm?.configured) {
+    try {
+      const extracted = await llm.extract(content)
+      if (extracted) {
+        if (!extractedTitle) extractedTitle = extracted.title
+        if (!extractedTags?.length) extractedTags = extracted.tags
+        if (!extractedSummary) extractedSummary = extracted.summary
+        if (!extractedType) extractedType = extracted.type
+        llmStatus = 'active'
+      }
+    } catch {
+      llmStatus = 'degraded'
+    }
+  }
+
+  // 2. Dedup check
+  const similar = await storage.findSimilar(extractedTitle || content.slice(0, 60), content)
+
+  if (similar.length > 0 && extractedTitle) {
+    const exact = similar.find(e => e.title.toLowerCase() === extractedTitle!.toLowerCase())
     if (exact) {
-      // Same title — increment usage and update content
       exact.practice_count += 1
       exact.updated_at = new Date().toISOString()
       if (content) exact.content = content
       await storage.save(exact)
-      return { id: exact.id, title: exact.title, dedup: true }
+      return { id: exact.id, title: exact.title, dedup: true, llmStatus }
     }
   }
 
-  // 2. Create new entry (always staging)
+  // 3. Create new entry (always staging)
   const entry: KnowledgeEntry = {
     id: randomUUID(),
-    type: type || 'concept',
-    title: title || content.slice(0, 60).replace(/\n/g, ' ').trim(),
-    summary: summary || '',
+    type: extractedType || 'concept',
+    title: extractedTitle || content.slice(0, 60).replace(/\n/g, ' ').trim(),
+    summary: extractedSummary || '',
     content,
     code_example: undefined,
-    tags: tags || [],
+    tags: extractedTags || [],
     roles: roles || [],
     tasks: tasks || [],
     truth: 'staging',
@@ -49,14 +72,13 @@ export async function handleLearn(
     updated_at: new Date().toISOString(),
   }
 
-  // If similar found but not exact match, add relations
+  // Similar and contradiction handling (unchanged)
   if (similar.length > 0) {
     for (const s of similar.slice(0, 3)) {
       entry.relations.push({ target: s.id, type: 'references' })
     }
   }
 
-  // Handle contradictions: mark both as disputed
   if (contradicts && contradicts.length > 0) {
     let hasExisting = false
     for (const targetId of contradicts) {
@@ -73,5 +95,18 @@ export async function handleLearn(
   }
 
   await storage.save(entry)
-  return { id: entry.id, title: entry.title, dedup: false }
+
+  // 4. Generate embedding (fire-and-forget for response speed)
+  if (llm?.configured && llmStatus === 'active') {
+    try {
+      const embedding = await generateEmbedding(content, llm)
+      if (embedding) {
+        await storage.saveEmbedding(entry.id, embedding, llm.modelName)
+      }
+    } catch {
+      // embedding failure doesn't affect llmStatus — entry is already stored
+    }
+  }
+
+  return { id: entry.id, title: entry.title, dedup: false, llmStatus }
 }
