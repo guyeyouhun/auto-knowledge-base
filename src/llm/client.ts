@@ -89,17 +89,27 @@ export class LLMClient {
   private baseUrl: string
   private apiKey: string
   private model: string
+  private embeddingBaseUrl: string
+  private embeddingApiKey: string
+  private embeddingModel: string
   private detectedProvider: 'openai' | 'anthropic' | null
 
   constructor() {
     this.baseUrl = config.llm.baseUrl
     this.apiKey = config.llm.apiKey
     this.model = config.llm.model
+    this.embeddingBaseUrl = config.embedding.baseUrl
+    this.embeddingApiKey = config.embedding.apiKey
+    this.embeddingModel = config.embedding.model
     this.detectedProvider = config.isAnthropic() ? 'anthropic' : null
   }
 
   get configured(): boolean {
     return !!(this.baseUrl && this.apiKey && this.model)
+  }
+
+  get embeddingConfigured(): boolean {
+    return !!(this.embeddingBaseUrl && this.embeddingApiKey && this.embeddingModel)
   }
 
   get modelName(): string {
@@ -298,18 +308,18 @@ export class LLMClient {
   // ── 生成嵌入向量 ──
 
   async embed(text: string): Promise<number[] | null> {
-    if (!this.configured) return null
+    if (!this.embeddingConfigured) return null
 
-    const url = `${this.baseUrl.replace(/\/+$/, '')}/embeddings`
+    const url = `${this.embeddingBaseUrl.replace(/\/+$/, '')}/embeddings`
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${this.embeddingApiKey}`,
         },
         body: JSON.stringify({
-          model: this.model,
+          model: this.embeddingModel,
           input: text,
         }),
       })

@@ -25,9 +25,12 @@ import type { KnowledgeEntry } from './types.js'
 
 const storage = new SqliteStore(config.dbPath)
 
-const llm = config.isLLMConfigured() ? new LLMClient() : undefined
+const llm = (config.isLLMConfigured() || config.isEmbeddingConfigured()) ? new LLMClient() : undefined
 if (llm) {
   console.error(`[auto-kb] LLM configured: ${llm.modelName} (${llm.provider})`)
+  if (config.isEmbeddingConfigured()) {
+    console.error(`[auto-kb] Embedding: ${config.embedding.model} (${config.embedding.baseUrl})`)
+  }
 }
 
 const server = new Server(

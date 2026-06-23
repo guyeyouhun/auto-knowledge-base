@@ -97,7 +97,7 @@ export async function handleLearn(
   await storage.save(entry)
 
   // 4. Generate embedding (non-blocking — entry already stored)
-  if (llm?.configured && llmStatus === 'active') {
+  if (llm?.embeddingConfigured) {
     generateEmbedding(content, llm).then(embedding => {
       if (embedding) {
         return storage.saveEmbedding(entry.id, embedding, llm!.modelName)

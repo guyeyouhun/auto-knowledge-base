@@ -28,7 +28,7 @@ export async function generateEmbedding(
   text: string,
   llm: LLMClient,
 ): Promise<Float32Array | null> {
-  if (!llm.configured) return null
+  if (!llm.embeddingConfigured) return null
 
   try {
     const result = await llm.embed(text)
