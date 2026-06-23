@@ -100,7 +100,7 @@ export async function handleLearn(
   if (llm?.configured && llmStatus === 'active') {
     generateEmbedding(content, llm).then(embedding => {
       if (embedding) {
-        storage.saveEmbedding(entry.id, embedding, llm!.modelName)
+        return storage.saveEmbedding(entry.id, embedding, llm!.modelName)
       }
     }).catch(err => {
       console.warn('[learn] embedding failed:', err)
