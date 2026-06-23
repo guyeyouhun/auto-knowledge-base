@@ -4,7 +4,7 @@
  * @file 一键安装 auto-kb MCP Server
  *
  * 两步安装：
- *   1. node dist/install.js          — 探测 LLM 配置，让用户选择
+ *   1. node dist/install.js          — 探测 LLM/Embedding 配置，让用户选择
  *   2. node dist/install.js --install — 执行安装
  *
  * 选项:
@@ -12,6 +12,9 @@
  *   --llm-url, -u     LLM API 地址
  *   --llm-key, -k     API 密钥
  *   --llm-model, -m   模型名称
+ *   --embedding-url    Embedding API 地址（可选，默认同 LLM）
+ *   --embedding-key    Embedding API 密钥（可选）
+ *   --embedding-model  Embedding 模型名（可选）
  *   --dir, -d        安装目录（默认 ~/.local/share/auto-kb）
  *   --help, -h       显示此帮助
  */
@@ -43,6 +46,7 @@ interface DetectedLLM {
   baseUrl: string
   apiKey: string
   model: string
+  embedding?: { baseUrl: string; apiKey: string; model: string }
 }
 
 function loadEnvFile(): Record<string, string> {
@@ -65,28 +69,35 @@ function loadEnvFile(): Record<string, string> {
   return vars
 }
 
-function probeLLM(): DetectedLLM[] {
-  const detected: DetectedLLM[] = []
+function probeConfig(): { llm: DetectedLLM | null; embedding: { baseUrl: string; apiKey: string; model: string } | null } {
   const envVars = loadEnvFile()
 
   // Helper to read from process.env first, then .env file
   const getEnv = (key: string) => process.env[key] || envVars[key] || ''
 
-  // 1. Standard LLM_* environment variables
+  // 1. LLM config
   const llmUrl = getEnv('LLM_BASE_URL')
   const llmKey = getEnv('LLM_API_KEY')
   const llmModel = getEnv('LLM_MODEL')
-  if (llmUrl && llmKey) {
-    detected.push({
-      id: 'llm_env',
-      name: `当前环境 LLM (${llmModel || '默认'})`,
-      baseUrl: llmUrl,
-      apiKey: llmKey,
-      model: llmModel || 'gpt-4o',
-    })
-  }
+  const llm = llmUrl && llmKey ? {
+    id: 'llm_env',
+    name: `LLM (${llmModel || '默认'})`,
+    baseUrl: llmUrl,
+    apiKey: llmKey,
+    model: llmModel || 'gpt-4o',
+  } : null
 
-  return detected
+  // 2. Embedding config (optional — separate from LLM)
+  const embUrl = getEnv('EMBEDDING_BASE_URL')
+  const embKey = getEnv('EMBEDDING_API_KEY')
+  const embModel = getEnv('EMBEDDING_MODEL')
+  const embedding = embUrl && embKey ? {
+    baseUrl: embUrl,
+    apiKey: embKey,
+    model: embModel || 'text-embedding-3-small',
+  } : null
+
+  return { llm, embedding }
 }
 
 // ── 安装参数 ──
@@ -96,6 +107,9 @@ interface CliArgs {
   llmUrl: string
   llmKey: string
   llmModel: string
+  embeddingUrl: string
+  embeddingKey: string
+  embeddingModel: string
   installDir: string
   skipLLM: boolean
 }
@@ -106,6 +120,9 @@ function parseArgs(): CliArgs {
   let llmUrl = ''
   let llmKey = ''
   let llmModel = ''
+  let embeddingUrl = ''
+  let embeddingKey = ''
+  let embeddingModel = ''
   let installDir = DEFAULT_INSTALL_DIR
   let skipLLM = false
 
@@ -117,6 +134,9 @@ function parseArgs(): CliArgs {
     else if (key === '--llm-url' || key === '-u') { llmUrl = val; i++ }
     else if (key === '--llm-key' || key === '-k') { llmKey = val; i++ }
     else if (key === '--llm-model' || key === '-m') { llmModel = val; i++ }
+    else if (key === '--embedding-url') { embeddingUrl = val; i++ }
+    else if (key === '--embedding-key') { embeddingKey = val; i++ }
+    else if (key === '--embedding-model') { embeddingModel = val; i++ }
     else if (key === '--dir' || key === '-d') { installDir = val; i++ }
     else if (key === '--no-llm') { skipLLM = true }
     else if (key === '--help' || key === '-h') {
@@ -130,21 +150,25 @@ function parseArgs(): CliArgs {
 也可一步完成：
   node dist/install.js --install --no-llm     # 不配 LLM
   node dist/install.js --install -u <URL> -k <KEY> -m <MODEL>  # 指定 LLM
+  node dist/install.js --install --embedding-url <URL> --embedding-key <KEY>  # LLM + 独立 Embedding
 
 选项:
-  --install, -i           执行安装
-  --llm-url, -u   <URL>   LLM API 地址
-  --llm-key, -k   <KEY>   API 密钥
-  --llm-model, -m <MODEL> 模型名称
-  --no-llm                不配置 LLM
-  --dir, -d       <PATH>  安装目录（默认 ${DEFAULT_INSTALL_DIR}）
-  --help, -h              显示此帮助
+  --install, -i             执行安装
+  --llm-url, -u   <URL>     LLM API 地址
+  --llm-key, -k   <KEY>     API 密钥
+  --llm-model, -m <MODEL>   模型名称
+  --embedding-url  <URL>    Embedding API 地址（可选，默认同 LLM）
+  --embedding-key  <KEY>    Embedding API 密钥（可选）
+  --embedding-model <MODEL> Embedding 模型名（可选，默认 text-embedding-3-small）
+  --no-llm                 不配置 LLM
+  --dir, -d       <PATH>   安装目录（默认 ${DEFAULT_INSTALL_DIR}）
+  --help, -h               显示此帮助
 `)
       process.exit(0)
     }
   }
 
-  return { doInstall, llmUrl, llmKey, llmModel, installDir, skipLLM }
+  return { doInstall, llmUrl, llmKey, llmModel, embeddingUrl, embeddingKey, embeddingModel, installDir, skipLLM }
 }
 
 // ── 安装逻辑 ──
@@ -202,8 +226,16 @@ function doInstall(installDir: string, llm: DetectedLLM | null) {
     addArgs.push('-e', `LLM_BASE_URL=${llm.baseUrl}`)
     addArgs.push('-e', `LLM_API_KEY=${llm.apiKey}`)
     addArgs.push('-e', `LLM_MODEL=${llm.model}`)
+    if (llm.embedding) {
+      addArgs.push('-e', `EMBEDDING_BASE_URL=${llm.embedding.baseUrl}`)
+      addArgs.push('-e', `EMBEDDING_API_KEY=${llm.embedding.apiKey}`)
+      addArgs.push('-e', `EMBEDDING_MODEL=${llm.embedding.model}`)
+    }
     execFileSync('claude', [...addArgs, '--', 'node', serverPath], { stdio: 'pipe', timeout: 30_000 })
     log(`LLM 已配置: ${llm.model} (${llm.baseUrl})`)
+    if (llm.embedding) {
+      log(`Embedding 已配置: ${llm.embedding.model} (${llm.embedding.baseUrl})`)
+    }
   } else {
     execFileSync('claude', [...addArgs, '--', 'node', serverPath], { stdio: 'pipe', timeout: 30_000 })
   }
@@ -213,8 +245,9 @@ function doInstall(installDir: string, llm: DetectedLLM | null) {
     dir: installDir,
     llmConfigured: llm !== null,
     llmModel: llm?.model || null,
+    embeddingConfigured: llm?.embedding ? true : false,
     message: llm
-      ? `✅ auto-kb 已安装，LLM (${llm.model}) 已配置`
+      ? `✅ auto-kb 已安装，LLM (${llm.model}) 已配置${llm.embedding ? `，Embedding (${llm.embedding.model})` : ''}`
       : `✅ auto-kb 已安装（纯文本模式）\n   需要 LLM 可运行: claude mcp update auto-kb ...`,
   }))
 }
@@ -226,23 +259,36 @@ function main() {
 
   // 探测模式（默认）
   if (!opts.doInstall) {
-    const detected = probeLLM()
+    const { llm, embedding } = probeConfig()
 
     const options: any[] = []
-    if (detected.length > 0) {
-      options.push({ id: 'use_detected', label: `使用探测到的 LLM（${detected[0].name}）`, detectedId: detected[0].id })
+    if (llm) {
+      const label = embedding
+        ? `使用探测到的配置（LLM: ${llm.model} + Embedding: ${embedding.model}）`
+        : `使用探测到的 LLM（${llm.model}）`
+      options.push({ id: 'use_detected', label, detectedId: llm.id })
     }
     options.push(
       { id: 'custom', label: '手动输入 LLM 配置' },
-      { id: 'skip', label: '暂不配置 LLM，安装后手动设置' },
+      { id: 'skip', label: '暂不配置 LLM/Embedding，安装后手动设置' },
     )
+
+    const detectedList = llm ? [{
+      id: llm.id,
+      name: llm.name,
+      baseUrl: llm.baseUrl,
+      model: llm.model,
+      embedding: embedding ? { baseUrl: embedding.baseUrl, model: embedding.model } : undefined,
+    }] : []
 
     console.log(JSON.stringify({
       action: 'choice_llm',
-      message: detected.length > 0
-        ? `检测到 ${detected.length} 个 LLM 配置`
-        : '未检测到 LLM 配置',
-      detected: detected.map(d => ({ id: d.id, name: d.name, baseUrl: d.baseUrl, model: d.model })),
+      message: llm
+        ? embedding
+          ? `检测到 ${llm.model} + 独立 Embedding (${embedding.model})`
+          : `检测到 LLM: ${llm.model}`
+        : '未检测到 LLM/Embedding 配置',
+      detected: detectedList,
       options,
     }))
     return
@@ -255,20 +301,26 @@ function main() {
   }
 
   if (opts.llmUrl && opts.llmKey) {
+    const embedding = opts.embeddingUrl && opts.embeddingKey ? {
+      baseUrl: opts.embeddingUrl,
+      apiKey: opts.embeddingKey,
+      model: opts.embeddingModel || 'text-embedding-3-small',
+    } : undefined
     doInstall(opts.installDir, {
       id: 'custom',
       name: '自定义',
       baseUrl: opts.llmUrl,
       apiKey: opts.llmKey,
       model: opts.llmModel || 'gpt-4o',
+      embedding,
     })
     return
   }
 
-  // 自动使用探测到的 LLM
-  const detected = probeLLM()
-  if (detected.length > 0) {
-    doInstall(opts.installDir, detected[0])
+  // 自动使用探测到的配置
+  const { llm, embedding } = probeConfig()
+  if (llm) {
+    doInstall(opts.installDir, { ...llm, embedding: embedding || undefined })
   } else {
     doInstall(opts.installDir, null)
   }
