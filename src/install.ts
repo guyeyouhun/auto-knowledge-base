@@ -16,7 +16,7 @@
  *   --help, -h       显示此帮助
  */
 
-import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs'
+import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { execFileSync, execSync } from 'child_process'
@@ -45,13 +45,37 @@ interface DetectedLLM {
   model: string
 }
 
+function loadEnvFile(): Record<string, string> {
+  const envPath = join(PROJECT_ROOT, '.env')
+  const vars: Record<string, string> = {}
+  try {
+    const content = readFileSync(envPath, 'utf-8')
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const eqIdx = trimmed.indexOf('=')
+      if (eqIdx === -1) continue
+      const key = trimmed.slice(0, eqIdx).trim()
+      const val = trimmed.slice(eqIdx + 1).trim()
+      vars[key] = val
+    }
+  } catch {
+    // .env file not found — ignore
+  }
+  return vars
+}
+
 function probeLLM(): DetectedLLM[] {
   const detected: DetectedLLM[] = []
+  const envVars = loadEnvFile()
 
-  // 1. 标准 LLM_* 环境变量
-  const llmUrl = process.env.LLM_BASE_URL || ''
-  const llmKey = process.env.LLM_API_KEY || ''
-  const llmModel = process.env.LLM_MODEL || ''
+  // Helper to read from process.env first, then .env file
+  const getEnv = (key: string) => process.env[key] || envVars[key] || ''
+
+  // 1. Standard LLM_* environment variables
+  const llmUrl = getEnv('LLM_BASE_URL')
+  const llmKey = getEnv('LLM_API_KEY')
+  const llmModel = getEnv('LLM_MODEL')
   if (llmUrl && llmKey) {
     detected.push({
       id: 'llm_env',
