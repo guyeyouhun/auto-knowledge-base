@@ -54,7 +54,7 @@ export async function handleRelevant(
   let result = scored.slice(0, limit).map(s => s.entry)
 
   // 5. LLM relevance re-ranking (optional enhancement)
-  let llmStatus: LLMStatus = llm?.configured ? 'degraded' : 'unconfigured'
+  let llmStatus: LLMStatus = llm?.configured ? 'active' : 'unconfigured'
   if (llm?.configured && result.length > 0) {
     try {
       const ranked = await llm.rankRelevant(params.task, params.keywords || [], result)

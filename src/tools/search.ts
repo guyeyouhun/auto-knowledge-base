@@ -60,7 +60,7 @@ export async function handleSearch(
   const bm25Entries = await storage.search(params)
   let entries = bm25Entries
   let synthesis = ''
-  let llmStatus: LLMStatus = llm?.configured ? 'degraded' : 'unconfigured'
+  let llmStatus: LLMStatus = llm?.configured ? 'active' : 'unconfigured'
 
   // 1. Vector search + RRF fusion (existing logic)
   if (useVector && llm?.configured && bm25Entries.length > 0) {

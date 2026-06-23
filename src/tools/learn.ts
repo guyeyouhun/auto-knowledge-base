@@ -12,7 +12,7 @@ export async function handleLearn(
   const { content, title, summary, tags, roles, tasks, type, source, relations, contradicts } = params
 
   // 1. LLM extraction (optional enhancement)
-  let llmStatus: LLMStatus = llm?.configured ? 'degraded' : 'unconfigured'
+  let llmStatus: LLMStatus = llm?.configured ? 'active' : 'unconfigured'
   let extractedTitle = title
   let extractedTags = tags
   let extractedSummary = summary
@@ -27,6 +27,8 @@ export async function handleLearn(
         if (!extractedSummary) extractedSummary = extracted.summary
         if (!extractedType) extractedType = extracted.type
         llmStatus = 'active'
+      } else {
+        llmStatus = 'degraded'
       }
     } catch {
       llmStatus = 'degraded'
