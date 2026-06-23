@@ -1,5 +1,5 @@
 import type { KnowledgeStorage } from '../storage/interface.js'
-import type { SearchParams, KnowledgeEntry } from '../types.js'
+import type { SearchParams, KnowledgeEntry, LLMStatus } from '../types.js'
 import type { LLMClient } from '../llm/client.js'
 import { generateEmbedding, cosineSimilarity } from '../embedding.js'
 
@@ -56,16 +56,19 @@ export async function handleSearch(
   params: SearchParams,
   llm?: LLMClient,
   useVector?: boolean,
-): Promise<{ entries: KnowledgeEntry[]; synthesis: string }> {
+): Promise<{ entries: KnowledgeEntry[]; synthesis: string; llmStatus: LLMStatus }> {
   const bm25Entries = await storage.search(params)
+  let entries = bm25Entries
+  let synthesis = ''
+  let llmStatus: LLMStatus = llm?.configured ? 'degraded' : 'unconfigured'
 
+  // 1. Vector search + RRF fusion (existing logic)
   if (useVector && llm?.configured && bm25Entries.length > 0) {
     try {
       const queryVector = await generateEmbedding(params.query, llm)
       if (queryVector) {
         const allEmbeddings = await storage.getAllEmbeddings()
         if (allEmbeddings.length > 0) {
-          // Compute cosine similarity for each stored embedding
           const scored = allEmbeddings
             .map((e) => ({
               id: e.kn_id,
@@ -76,8 +79,7 @@ export async function handleSearch(
             .map((e) => e.id)
 
           if (scored.length > 0) {
-            const merged = rrfMerge(bm25Entries, scored)
-            return { entries: merged, synthesis: '' }
+            entries = rrfMerge(bm25Entries, scored)
           }
         }
       }
@@ -86,5 +88,20 @@ export async function handleSearch(
     }
   }
 
-  return { entries: bm25Entries, synthesis: '' }
+  // 2. LLM semantic rerank + synthesis
+  if (llm?.configured && entries.length > 0) {
+    try {
+      const { rankings, synthesis: llmSynthesis } = await llm.rankSearchResults(params.query, entries)
+      if (rankings.length > 0) {
+        const rankMap = new Map(rankings.map(r => [r.id, r.relevance]))
+        entries.sort((a, b) => (rankMap.get(b.id) ?? 0) - (rankMap.get(a.id) ?? 0))
+      }
+      synthesis = llmSynthesis
+      llmStatus = 'active'
+    } catch {
+      llmStatus = 'degraded'
+    }
+  }
+
+  return { entries, synthesis, llmStatus }
 }

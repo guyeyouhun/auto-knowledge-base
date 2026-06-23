@@ -48,6 +48,7 @@ describe('handleSearch', () => {
     const result = await handleSearch(store, { query: 'react hooks' })
     expect(result.entries.length).toBe(1)
     expect(result.entries[0].title).toBe('React Hooks')
+    expect(result.llmStatus).toBe('unconfigured')
   })
 
   it('returns empty for no match', async () => {
@@ -55,10 +56,11 @@ describe('handleSearch', () => {
     expect(result.entries.length).toBe(0)
   })
 
-  it('returns empty synthesis', async () => {
+  it('returns synthesis empty when LLM not configured', async () => {
     await store.save(makeConfirmedEntry({ title: 'React Hooks', content: 'useState', tags: ['react'] }))
     const result = await handleSearch(store, { query: 'react' })
     expect(result.synthesis).toBe('')
+    expect(result.llmStatus).toBe('unconfigured')
   })
 })
 
@@ -143,5 +145,49 @@ describe('handleSearch with hybrid vector search', () => {
     const noLLM = { configured: false } as any
     const result = await handleSearch(store, { query: 'react' }, noLLM, true)
     expect(result.entries.length).toBe(1)
+  })
+})
+
+describe('handleSearch with LLM rerank', () => {
+  let store: SqliteStore
+  let tempDir: string
+
+  const mockLLM = {
+    configured: true,
+    rankSearchResults: async (_query: string, entries: any[]) => ({
+      rankings: entries.map((e: any, i: number) => ({ id: e.id, relevance: 1 - i * 0.1, reason: 'mock' })),
+      synthesis: 'Synthesis text',
+    }),
+    embed: async (_text: string) => [0.1, 0.2, 0.3],
+    modelName: 'test-model',
+  } as any
+
+  beforeEach(() => {
+    tempDir = createTempDir()
+    store = new SqliteStore(join(tempDir, 'test.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTempDir(tempDir)
+  })
+
+  it('returns synthesis from LLM when configured', async () => {
+    await store.save(makeConfirmedEntry({ title: 'React Hooks', content: 'useState', tags: ['react'] }))
+    const result = await handleSearch(store, { query: 'react' }, mockLLM, false)
+    expect(result.synthesis).toBe('Synthesis text')
+    expect(result.llmStatus).toBe('active')
+  })
+
+  it('marks degraded when LLM rerank fails', async () => {
+    const brokenLLM = {
+      configured: true,
+      rankSearchResults: async () => { throw new Error('API error') },
+    } as any
+    await store.save(makeConfirmedEntry({ title: 'React Hooks', content: 'useState', tags: ['react'] }))
+    const result = await handleSearch(store, { query: 'react' }, brokenLLM, false)
+    expect(result.entries.length).toBe(1)
+    expect(result.synthesis).toBe('')
+    expect(result.llmStatus).toBe('degraded')
   })
 })
