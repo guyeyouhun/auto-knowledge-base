@@ -252,26 +252,30 @@ export class LLMClient {
 
   // ── 语义搜索评分 ──
 
-  async rankSearchResults(query: string, entries: { id: string; title: string; summary: string; tags: string[] }[]): Promise<{ id: string; relevance: number; reason: string }[]> {
-    if (!this.configured || entries.length === 0) return entries.map(e => ({ id: e.id, relevance: 0.5, reason: '' }))
+  async rankSearchResults(
+    query: string,
+    entries: { id: string; title: string; summary: string; tags: string[] }[],
+  ): Promise<{ rankings: { id: string; relevance: number; reason: string }[]; synthesis: string }> {
+    if (!this.configured || entries.length === 0)
+      return { rankings: entries.map(e => ({ id: e.id, relevance: 0.5, reason: '' })), synthesis: '' }
 
-    if (entries.length === 1) return [{ id: entries[0].id, relevance: 0.5, reason: 'only result' }]
+    if (entries.length === 1)
+      return { rankings: [{ id: entries[0].id, relevance: 0.5, reason: 'only result' }], synthesis: '' }
 
-    try {
-      const entriesJson = JSON.stringify(entries.map(e => ({ id: e.id, title: e.title, summary: e.summary, tags: e.tags })))
-      const raw = await this.chat([
-        { role: 'system', content: SEARCH_SYSTEM },
-        { role: 'user', content: `Query: ${query}\n\nEntries:\n${entriesJson}` },
-      ], 0.2, 1500)
+    const entriesJson = JSON.stringify(entries.map(e => ({ id: e.id, title: e.title, summary: e.summary, tags: e.tags })))
+    const raw = await this.chat([
+      { role: 'system', content: SEARCH_SYSTEM },
+      { role: 'user', content: `Query: ${query}\n\nEntries:\n${entriesJson}` },
+    ], 0.2, 1500)
 
-      const result = this.parseJSON<{ results: { id: string; relevance: number; reason: string }[]; synthesis: string }>(raw, { results: [], synthesis: '' })
+    const result = this.parseJSON<{ results: { id: string; relevance: number; reason: string }[]; synthesis: string }>(raw, { results: [], synthesis: '' })
 
-      if (!result.results?.length) return entries.map(e => ({ id: e.id, relevance: 0.5, reason: '' }))
+    if (!result.results?.length)
+      throw new Error('LLM returned empty results for rankSearchResults')
 
-      return result.results.slice(0, entries.length)
-    } catch (err) {
-      console.error('[LLM] search error:', (err as Error).message)
-      return entries.map(e => ({ id: e.id, relevance: 0.5, reason: '' }))
+    return {
+      rankings: result.results.slice(0, entries.length),
+      synthesis: result.synthesis || '',
     }
   }
 
