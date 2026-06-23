@@ -96,16 +96,15 @@ export async function handleLearn(
 
   await storage.save(entry)
 
-  // 4. Generate embedding (fire-and-forget for response speed)
+  // 4. Generate embedding (non-blocking — entry already stored)
   if (llm?.configured && llmStatus === 'active') {
-    try {
-      const embedding = await generateEmbedding(content, llm)
+    generateEmbedding(content, llm).then(embedding => {
       if (embedding) {
-        await storage.saveEmbedding(entry.id, embedding, llm.modelName)
+        storage.saveEmbedding(entry.id, embedding, llm!.modelName)
       }
-    } catch {
-      // embedding failure doesn't affect llmStatus — entry is already stored
-    }
+    }).catch(err => {
+      console.warn('[learn] embedding failed:', err)
+    })
   }
 
   return { id: entry.id, title: entry.title, dedup: false, llmStatus }
