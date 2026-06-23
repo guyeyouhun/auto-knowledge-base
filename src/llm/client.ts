@@ -284,19 +284,15 @@ export class LLMClient {
   async rankRelevant(task: string, keywords: string[], entries: { id: string; title: string; summary: string; tags: string[] }[]): Promise<{ id: string; relevance: number; reason: string }[]> {
     if (!this.configured || entries.length === 0) return []
 
-    try {
-      const entriesJson = JSON.stringify(entries.map(e => ({ id: e.id, title: e.title, summary: e.summary, tags: e.tags })))
-      const raw = await this.chat([
-        { role: 'system', content: RELEVANT_SYSTEM },
-        { role: 'user', content: `Task: ${task}\nKeywords: ${keywords.join(', ')}\n\nAvailable knowledge:\n${entriesJson}` },
-      ], 0.3, 1500)
+    const entriesJson = JSON.stringify(entries.map(e => ({ id: e.id, title: e.title, summary: e.summary, tags: e.tags })))
+    const raw = await this.chat([
+      { role: 'system', content: RELEVANT_SYSTEM },
+      { role: 'user', content: `Task: ${task}\nKeywords: ${keywords.join(', ')}\n\nAvailable knowledge:\n${entriesJson}` },
+    ], 0.3, 1500)
 
-      const result = this.parseJSON<{ results: { id: string; relevance: number; reason: string }[] }>(raw, { results: [] })
-      return (result.results || []).slice(0, entries.length)
-    } catch (err) {
-      console.error('[LLM] relevance error:', (err as Error).message)
-      return entries.map(e => ({ id: e.id, relevance: 0.3, reason: '' }))
-    }
+    const result = this.parseJSON<{ results: { id: string; relevance: number; reason: string }[] } | null>(raw, null)
+    if (!result?.results?.length) throw new Error('LLM returned empty results for rankRelevant')
+    return result.results.slice(0, entries.length)
   }
 
   // ── 生成嵌入向量 ──
