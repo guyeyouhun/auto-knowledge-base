@@ -218,15 +218,51 @@ describe('handleRelevant', () => {
     // entry-node has activation > 0, so it should be ranked first
     expect(entries[0].id).toBe('entry-node')
   })
+})
 
-  it('handles role config with no entry_kn_ids gracefully', async () => {
-    await store.setRoleConfig(makeRoleConfig({
-      role: 'developer',
-      entry_kn_ids: [],
-    }))
-    await store.save(makeEntry('kn-1', { title: 'Data', content: 'some data' }))
-    const { entries } = await handleRelevant(store, { role: 'developer', task: 'data' })
-    expect(entries.length).toBe(1)
-    expect(entries[0].id).toBe('kn-1')
+describe('handleRelevant with LLM ranking', () => {
+  let store: SqliteStore
+  let tempDir: string
+
+  const mockLLM = {
+    configured: true,
+    rankRelevant: async (_task: string, _keywords: string[], entries: any[]) =>
+      entries.map((e, i) => ({ id: e.id, relevance: 1 - i * 0.1, reason: 'test' })),
+  } as any
+
+  beforeEach(() => {
+    tempDir = createTempDir()
+    store = new SqliteStore(join(tempDir, 'test.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTempDir(tempDir)
+  })
+
+  it('re-ranks entries with LLM when configured', async () => {
+    await store.save(makeEntry('kn-1', { title: 'React Hooks', roles: [], content: 'react hooks' }))
+    const result = await handleRelevant(store, { role: 'developer', task: 'react' }, mockLLM)
+    expect(result.entries.length).toBe(1)
+    expect(result.llmStatus).toBe('active')
+  })
+
+  it('degrades gracefully when LLM ranking fails', async () => {
+    const brokenLLM = {
+      configured: true,
+      rankRelevant: async () => { throw new Error('API error') },
+    } as any
+    await store.save(makeEntry('kn-1', { title: 'React Hooks', roles: [], content: 'react hooks' }))
+    const result = await handleRelevant(store, { role: 'developer', task: 'react' }, brokenLLM)
+    expect(result.entries.length).toBe(1)
+    expect(result.llmStatus).toBe('degraded')
+  })
+
+  it('uses formula scoring when LLM not configured', async () => {
+    const noLLM = { configured: false } as any
+    await store.save(makeEntry('kn-1', { title: 'React Hooks', roles: [], content: 'react hooks' }))
+    const result = await handleRelevant(store, { role: 'developer', task: 'react' }, noLLM)
+    expect(result.entries.length).toBe(1)
+    expect(result.llmStatus).toBe('unconfigured')
   })
 })

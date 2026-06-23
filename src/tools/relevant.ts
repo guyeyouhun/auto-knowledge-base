@@ -1,11 +1,13 @@
 import type { KnowledgeStorage } from '../storage/interface.js'
-import type { KnowledgeEntry, RelevantParams } from '../types.js'
+import type { KnowledgeEntry, LLMStatus, RelevantParams } from '../types.js'
+import type { LLMClient } from '../llm/client.js'
 import { spreadActivation } from '../diffusion.js'
 
 export async function handleRelevant(
   storage: KnowledgeStorage,
   params: RelevantParams,
-): Promise<{ entries: KnowledgeEntry[] }> {
+  llm?: LLMClient,
+): Promise<{ entries: KnowledgeEntry[]; llmStatus: LLMStatus }> {
   const { role, task, keywords, project, maxResults } = params
   const limit = maxResults || 5
 
@@ -49,10 +51,25 @@ export async function handleRelevant(
     })
 
   scored.sort((a, b) => b.score - a.score)
-  const result = scored.slice(0, limit).map(s => s.entry)
+  let result = scored.slice(0, limit).map(s => s.entry)
+
+  // 5. LLM relevance re-ranking (optional enhancement)
+  let llmStatus: LLMStatus = llm?.configured ? 'degraded' : 'unconfigured'
+  if (llm?.configured && result.length > 0) {
+    try {
+      const ranked = await llm.rankRelevant(params.task, params.keywords || [], result)
+      if (ranked.length > 0) {
+        const rankMap = new Map(ranked.map(r => [r.id, r.relevance]))
+        result.sort((a, b) => (rankMap.get(b.id) ?? 0) - (rankMap.get(a.id) ?? 0))
+      }
+      llmStatus = 'active'
+    } catch {
+      llmStatus = 'degraded'
+    }
+  }
 
   // Record access for returned entries
   await Promise.all(result.map(e => storage.recordAccess(e.id)))
 
-  return { entries: result }
+  return { entries: result, llmStatus }
 }
