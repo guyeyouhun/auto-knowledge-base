@@ -68,7 +68,7 @@ export const config = {
       ? 'llm' : 'dedicated'
     return {
       model: this.llm.model,
-      baseUrl: this.llm.baseUrl.replace(/\/?(v1)?\/?$/, ''),
+      baseUrl: this.llm.baseUrl.replace(/\/?\?(v1)?\/?$/, ''),
       configured: this.isLLMConfigured(),
       provider: this.isAnthropic() ? 'anthropic' : 'openai-compatible',
       embedding: {

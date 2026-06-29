@@ -4,6 +4,7 @@ export const SearchSchema = z.object({
   query: z.string().min(1, 'query is required'),
   tags: z.array(z.string()).optional(),
   project: z.string().optional(),
+  role: z.string().optional(),
   limit: z.number().int().positive().optional(),
 })
 
@@ -72,4 +73,23 @@ export const ImportSchema = z.object({
     truth: z.enum(['confirmed', 'staging', 'disputed', 'deprecated']),
     provenance: z.enum(['extracted', 'inferred', 'synthesized', 'user_stated', 'unverified']),
   }).partial()),
+})
+
+export const RequestRefreshSchema = z.object({
+  id: z.string().min(1, 'knowledge ID is required'),
+  reason: z.enum(['decay', 'agent_request', 'manual']).optional().default('agent_request'),
+})
+
+export const ReportGapSchema = z.object({
+  query: z.string().min(1, 'query is required'),
+  source_url: z.string().optional(),
+  reporter_role: z.string().optional(),
+  reporter_agent: z.string().optional(),
+})
+
+export const QueryGapsSchema = z.object({
+  status: z.enum(['open', 'digested', 'rejected', 'auto_digested']).optional(),
+  reporter_role: z.string().optional(),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().min(0).optional(),
 })

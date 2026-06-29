@@ -55,6 +55,7 @@ export interface SearchParams {
   query: string
   tags?: string[]
   project?: string
+  role?: string
   limit?: number
 }
 
@@ -96,4 +97,35 @@ export interface AuditEntry {
   detail: string | null
   actor: string
   timestamp: string
+}
+
+// ── Gap 报告类型 ──
+
+export type GapStatus = 'open' | 'digested' | 'rejected' | 'auto_digested'
+
+export interface GapEntry {
+  id: number
+  query: string
+  source_url?: string
+  reporter_role?: string
+  reporter_agent?: string
+  status: GapStatus
+  kn_id?: string
+  error?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ReportGapParams {
+  query: string
+  source_url?: string
+  reporter_role?: string
+  reporter_agent?: string
+}
+
+export interface QueryGapsParams {
+  status?: GapStatus
+  reporter_role?: string
+  limit?: number
+  offset?: number
 }
