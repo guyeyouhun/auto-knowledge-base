@@ -3,3 +3,4 @@ dist/
 knowledge/
 .env
 *.log
+.superpowers/
