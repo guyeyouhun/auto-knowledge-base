@@ -1,75 +1,66 @@
-import type { AuditEntry, KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
+import type { KnowledgeEntry, Relation, RoleConfig, AuditEntry, GapEntry } from '../types.js'
+import type { FSRSParams } from '../fsrs.js'
 
 export interface KnowledgeStorage {
-  /** 保存一个条目（创建或更新） */
-  save(entry: KnowledgeEntry): Promise<void>
-
-  /** 根据 ID 获取条目 */
+  // ── CRUD ──
+  create(entry: KnowledgeEntry): Promise<string>
   get(id: string): Promise<KnowledgeEntry | null>
+  update(id: string, updates: Partial<KnowledgeEntry>): Promise<void>
+  delete(id: string): Promise<void>
 
-  /** 删除条目 */
-  delete(id: string): Promise<boolean>
+  // ── Query ──
+  search(params: {
+    query: string
+    tags?: string[]
+    project?: string
+    limit?: number
+  }): Promise<KnowledgeEntry[]>
 
-  /** 搜索条目（关键词 + 标签 + 项目） */
-  search(params: SearchParams): Promise<KnowledgeEntry[]>
+  // ── Relations ──
+  addRelation(sourceId: string, targetId: string, type: string): Promise<void>
+  getRelations(id: string): Promise<Array<{ source_kn: string; target_kn: string; rel_type: string }>>
 
-  /** 列出所有条目 ID，可选按信任级别过滤 */
-  list(truth?: Truth): Promise<string[]>
+  // ── Role Config ──
+  getRoleConfig(role: string): Promise<RoleConfig | null>
+  setRoleConfig(config: RoleConfig): Promise<void>
+  listRoles(): Promise<string[]>
 
-  /** 获取条目总数 */
-  count(): Promise<number>
+  // ── Audit ──
+  logAudit(knId: string | null, operation: string, detail?: string): Promise<void>
+  queryAudit(limit?: number, operation?: string): Promise<AuditEntry[]>
 
-  /** 将 staging 条目确认为 confirmed */
-  confirm(id: string): Promise<boolean>
+  // ── Refresh ──
+  queueRefresh(knId: string, sourceRef: string, sourceType: string, reason: string): Promise<void>
 
-  /** 根据标题查找相似条目 */
-  findSimilar(title: string, content: string, threshold?: number): Promise<KnowledgeEntry[]>
+  // ── Embeddings ──
+  getEmbedding(knId: string): Promise<Float32Array | null>
+  saveEmbedding(knId: string, embedding: Float32Array): Promise<void>
 
-  /** 健康检查 */
-  health(): Promise<{ ok: boolean; count: number }>
+  // ── Maintenance ──
+  getStaleEntries(days: number): Promise<Array<{ id: string; strength: number; stability: number; difficulty: number; updated_at: string }>>
+  updateFSRSParams(id: string, params: FSRSParams, temperature: string): Promise<void>
+  updateLastAccessed(id: string): Promise<void>
+  getAllStaging(): Promise<KnowledgeEntry[]>
 
-  /** 获取详细统计信息 */
+  // ── Stats ──
   getStats(): Promise<{
+    total: number
     byTruth: Record<string, number>
+    byType: Record<string, number>
     byTemperature: Record<string, number>
     relationCount: number
     embeddingCount: number
     dbSizeBytes: number
   }>
 
-  /** 获取角色配置 */
-  getRoleConfig(role: string): Promise<RoleConfig | null>
+  // ── Export/Import ──
+  getAllEntries(): Promise<KnowledgeEntry[]>
+  bulkCreate(entries: KnowledgeEntry[]): Promise<{ imported: number; skipped: number }>
 
-  /** 设置/更新角色配置 */
-  setRoleConfig(config: RoleConfig): Promise<void>
+  // ── Gap ──
+  createGap(gap: Omit<GapEntry, 'id' | 'created_at' | 'updated_at'>): Promise<number>
+  findGaps(params: { status?: string; reporter_role?: string; limit?: number; offset?: number }): Promise<GapEntry[]>
 
-  /** 列出所有已配置的角色 */
-  listRoles(): Promise<string[]>
-
-  /** 获取指定实体的关系（双向查询） */
-  getRelations(id: string): Promise<{ source_kn: string; target_kn: string; rel_type: string }[]>
-
-  /** 记录一次访问（增加 practice_count，更新 last_accessed） */
-  recordAccess(id: string): Promise<void>
-
-  /** 记录一次练习结果（成功/失败），使用 FSRS 公式更新 strength/stability/difficulty */
-  recordPractice(id: string, success: boolean): Promise<void>
-
-  /** 更新指定条目的部分 FSRS 或状态字段 */
-  updateParams(id: string, params: Partial<Pick<KnowledgeEntry, 'strength' | 'stability' | 'difficulty' | 'temperature' | 'truth'>>): Promise<void>
-
-  /** 记录一条审计日志 */
-  logAudit(kn_id: string | null, operation: string, detail?: string): Promise<void>
-
-  /** 查询审计日志，可按操作类型过滤，默认返回最近 50 条 */
-  queryAudit(limit?: number, operation?: string): Promise<AuditEntry[]>
-
-  /** 保存嵌入向量 */
-  saveEmbedding(kn_id: string, embedding: Float32Array, model: string): Promise<void>
-
-  /** 获取指定条目的嵌入向量 */
-  getEmbedding(kn_id: string): Promise<{ embedding: Float32Array; model: string } | null>
-
-  /** 获取所有嵌入向量 */
-  getAllEmbeddings(): Promise<Array<{ kn_id: string; embedding: Float32Array }>>
+  // ── Lifecycle ──
+  close(): Promise<void>
 }

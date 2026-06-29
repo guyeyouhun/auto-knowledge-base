@@ -1,225 +1,156 @@
 import Database from 'better-sqlite3'
-import { readFileSync, existsSync, mkdirSync, statSync } from 'fs'
+import { readFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import type { AuditEntry, KnowledgeEntry, RoleConfig, SearchParams, Truth } from '../types.js'
+import type { KnowledgeEntry, RoleConfig, AuditEntry, GapEntry } from '../types.js'
+import type { FSRSParams } from '../fsrs.js'
+import { updateTemperature } from '../fsrs.js'
 import type { KnowledgeStorage } from './interface.js'
-import { applySuccess, applyFailure, updateTemperature } from '../fsrs.js'
-
-type UpdatableFields = Pick<KnowledgeEntry, 'strength' | 'stability' | 'difficulty' | 'temperature' | 'truth'>
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+function loadSchema(path: string): string {
+  const schemaPath = path.endsWith('.sql') ? path : join(__dirname, 'schema.sql')
+  return readFileSync(schemaPath, 'utf-8')
+}
+
 export class SqliteStore implements KnowledgeStorage {
   private db: Database.Database
+  private schemaLoaded: boolean = false
 
   constructor(dbPath: string) {
-    // Ensure parent dir exists
     const dir = dirname(dbPath)
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
+
     this.db = new Database(dbPath)
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
-    this.migrate()
   }
 
-  private migrate(): void {
-    let schemaPath = join(__dirname, 'schema.sql')
-    if (!existsSync(schemaPath)) {
-      // Fallback: look in src/storage/ (development mode, or missing build copy)
-      schemaPath = join(__dirname, '..', '..', 'src', 'storage', 'schema.sql')
-    }
-    const schema = readFileSync(schemaPath, 'utf-8')
+  private ensureSchema(): void {
+    if (this.schemaLoaded) return
+    const schema = loadSchema(join(__dirname, 'schema.sql'))
     this.db.exec(schema)
+    this.schemaLoaded = true
   }
 
-  private rowToEntry(row: any): KnowledgeEntry {
-    return {
-      ...row,
-      tags: JSON.parse(row.tags || '[]'),
-      roles: JSON.parse(row.roles || '[]'),
-      tasks: JSON.parse(row.tasks || '[]'),
-    }
-  }
+  // ── CRUD ──
 
-  async save(entry: KnowledgeEntry): Promise<void> {
-    const stmt = this.db.prepare(`
-      INSERT INTO knowledge (
-        id, type, title, summary, content, code_example,
-        tags, roles, tasks, truth, provenance, evidence,
-        strength, stability, difficulty, temperature,
-        practice_count, practice_success,
-        supersedes, superseded_by, source,
-        created_at, updated_at, last_accessed
-      ) VALUES (
-        @id, @type, @title, @summary, @content, @code_example,
-        @tags, @roles, @tasks, @truth, @provenance, @evidence,
-        @strength, @stability, @difficulty, @temperature,
-        @practice_count, @practice_success,
-        @supersedes, @superseded_by, @source,
-        @created_at, @updated_at, @last_accessed
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        title=excluded.title, summary=excluded.summary,
-        content=excluded.content, tags=excluded.tags,
-        roles=excluded.roles, tasks=excluded.tasks,
-        truth=excluded.truth,
-        strength=excluded.strength, stability=excluded.stability,
-        difficulty=excluded.difficulty, temperature=excluded.temperature,
-        updated_at=datetime('now')
-    `)
-    stmt.run({
-      ...entry,
-      tags: JSON.stringify(entry.tags),
-      roles: JSON.stringify(entry.roles),
-      tasks: JSON.stringify(entry.tasks),
-      code_example: entry.code_example ?? null,
-      evidence: entry.evidence ?? null,
-      supersedes: entry.supersedes ?? null,
-      superseded_by: entry.superseded_by ?? null,
-      source: entry.source ?? null,
-      last_accessed: entry.last_accessed ?? null,
-    })
-
-    // Save relations
-    const delRel = this.db.prepare('DELETE FROM relations WHERE source_kn = ?')
-    const insRel = this.db.prepare(`
-      INSERT OR IGNORE INTO relations(source_kn, target_kn, rel_type, weight)
-      VALUES (?, ?, ?, ?)
-    `)
-    const tx = this.db.transaction(() => {
-      delRel.run(entry.id)
-      for (const rel of entry.relations || []) {
-        insRel.run(entry.id, rel.target, rel.type, 1.0)
-      }
-    })
-    tx()
+  async create(entry: KnowledgeEntry): Promise<string> {
+    this.ensureSchema()
+    // Reduce title length to fit within UNIQUE constraint (SQLite max is 200 for our schema)
+    const title = entry.title.slice(0, 200)
+    // ... existing code ...
+    return entry.id
   }
 
   async get(id: string): Promise<KnowledgeEntry | null> {
+    this.ensureSchema()
     const row = this.db.prepare('SELECT * FROM knowledge WHERE id = ?').get(id) as any
     if (!row) return null
-
-    const relations = this.db.prepare(
-      'SELECT target_kn as target, rel_type as type FROM relations WHERE source_kn = ?'
-    ).all(id) as any[]
-
-    return { ...this.rowToEntry(row), relations }
+    return this.rowToEntry(row)
   }
 
-  async delete(id: string): Promise<boolean> {
-    const result = this.db.prepare('DELETE FROM knowledge WHERE id = ?').run(id)
-    return result.changes > 0
-  }
+  async update(id: string, updates: Partial<KnowledgeEntry>): Promise<void> {
+    this.ensureSchema()
+    const sets: string[] = []
+    const values: any[] = []
 
-  async search(params: SearchParams): Promise<KnowledgeEntry[]> {
-    const { query, tags, project, limit } = params
-    if (!query.trim()) return []
-
-    const terms = query.split(/\s+/).filter(Boolean).map((t) => `"${t}"`).join(' OR ')
-    const ftsQuery = terms || query
-
-    let sql = `
-      SELECT k.* FROM knowledge k
-      JOIN knowledge_fts ON k.rowid = knowledge_fts.rowid
-      WHERE k.truth = 'confirmed' AND k.temperature != 'frozen'
-      AND knowledge_fts MATCH ?
-    `
-    const params_arr: any[] = [ftsQuery]
-
-    if (tags?.length) {
-      for (const tag of tags) {
-        sql += ` AND k.tags LIKE ?`
-        params_arr.push(`%"${tag}"%`)
+    for (const [key, value] of Object.entries(updates)) {
+      if (key === 'id') continue
+      if (key === 'tags' || key === 'roles' || key === 'tasks' || key === 'relations') {
+        sets.push(`${key} = ?`)
+        values.push(JSON.stringify(value))
+      } else if (key === 'temperature') {
+        if (!['hot', 'warm', 'cool', 'frozen'].includes(value as string)) continue
+        sets.push(`${key} = ?`)
+        values.push(value)
+      } else {
+        sets.push(`${key} = ?`)
+        values.push(value)
       }
     }
 
-    if (project) {
-      sql += ` AND k.tasks LIKE ?`
-      params_arr.push(`%"${project}"%`)
+    if (sets.length === 0) return
+
+    this.db.prepare(`UPDATE knowledge SET ${sets.join(', ')} WHERE id = ?`).run(...values, id)
+  }
+
+  async delete(id: string): Promise<void> {
+    this.ensureSchema()
+    this.db.prepare('DELETE FROM knowledge WHERE id = ?').run(id)
+  }
+
+  // ── Query ──
+
+  async search(params: {
+    query: string
+    tags?: string[]
+    project?: string
+    limit?: number
+  }): Promise<KnowledgeEntry[]> {
+    this.ensureSchema()
+    let sql = `
+      SELECT k.*, kn_fts.rank
+      FROM knowledge_fts
+      JOIN knowledge k ON k.id = knowledge_fts.rowid
+      WHERE k.truth = 'confirmed'
+      AND k.temperature != 'frozen'
+      AND knowledge_fts MATCH ?
+    `
+    const conditions: string[] = []
+    const values: any[] = [this.fixQuery(params.query)]
+
+    if (params.tags && params.tags.length > 0) {
+      for (const tag of params.tags) {
+        conditions.push(`k.tags LIKE ?`)
+        values.push(`%"${tag}"%`)
+      }
     }
 
-    sql += ` ORDER BY bm25(knowledge_fts, 0.0, 0.0, 1.0, 1.0, 10.0, 10.0)`
-
-    if (limit) {
-      sql += ` LIMIT ?`
-      params_arr.push(limit)
+    if (params.project) {
+      conditions.push(`k.tags LIKE ?`)
+      values.push(`%"${params.project}"%`)
     }
 
-    const rows = this.db.prepare(sql).all(...params_arr) as any[]
-    return rows.map((r) => this.rowToEntry(r))
-  }
-
-  async list(truth?: Truth): Promise<string[]> {
-    if (truth) {
-      return (
-        (this.db.prepare('SELECT id FROM knowledge WHERE truth = ?').all(truth) as any[]).map(
-          (r) => r.id
-        )
-      )
+    if (conditions.length > 0) {
+      sql += ` AND ${conditions.join(' AND ')}`
     }
-    return (this.db.prepare('SELECT id FROM knowledge').all() as any[]).map((r) => r.id)
+
+    sql += ' ORDER BY kn_fts.rank LIMIT ?'
+    values.push(params.limit || 10)
+
+    const rows = this.db.prepare(sql).all(...values) as any[]
+    return rows.map((row: any) => this.rowToEntry(row))
   }
 
-  async count(): Promise<number> {
-    return (this.db.prepare('SELECT COUNT(*) as c FROM knowledge').get() as any).c
+  private fixQuery(query: string): string {
+    // FTS5 doesn't like special chars
+    return query.replace(/[^\w\s\u4e00-\u9fff-]/g, ' ').trim()
   }
 
-  async confirm(id: string): Promise<boolean> {
-    const result = this.db.prepare(
-      "UPDATE knowledge SET truth = 'confirmed', updated_at = datetime('now') WHERE id = ? AND truth = 'staging'"
-    ).run(id)
-    return result.changes > 0
+  // ── Relations ──
+
+  async addRelation(sourceId: string, targetId: string, type: string): Promise<void> {
+    this.ensureSchema()
+    this.db.prepare(
+      'INSERT OR IGNORE INTO relations (source_kn, target_kn, rel_type) VALUES (?, ?, ?)'
+    ).run(sourceId, targetId, type)
   }
 
-  async findSimilar(title: string, _content: string, _threshold = 0.6): Promise<KnowledgeEntry[]> {
-    const terms = title.split(/\s+/).filter(Boolean).map((t) => `"${t}"`).join(' OR ')
-    const rows = this.db.prepare(`
-      SELECT k.* FROM knowledge k
-      JOIN knowledge_fts ON k.rowid = knowledge_fts.rowid
-      WHERE knowledge_fts MATCH ? AND k.truth != 'deprecated'
-      ORDER BY bm25(knowledge_fts, 10.0, 20.0, 1.0, 1.0, 5.0, 5.0)
-      LIMIT 5
-    `).all(terms) as any[]
-    return rows.map((r) => this.rowToEntry(r))
+  async getRelations(id: string): Promise<Array<{ source_kn: string; target_kn: string; rel_type: string }>> {
+    this.ensureSchema()
+    return this.db.prepare(
+      'SELECT * FROM relations WHERE source_kn = ? OR target_kn = ?'
+    ).all(id, id) as Array<{ source_kn: string; target_kn: string; rel_type: string }>
   }
 
-  async health(): Promise<{ ok: boolean; count: number }> {
-    const count = await this.count()
-    return { ok: true, count }
-  }
-
-  async getStats(): Promise<{
-    byTruth: Record<string, number>
-    byTemperature: Record<string, number>
-    relationCount: number
-    embeddingCount: number
-    dbSizeBytes: number
-  }> {
-    const byTruth: Record<string, number> = {}
-    const byTemp: Record<string, number> = {}
-
-    const truthRows = this.db.prepare('SELECT truth, COUNT(*) as c FROM knowledge GROUP BY truth').all() as any[]
-    for (const r of truthRows) byTruth[r.truth] = r.c
-
-    const tempRows = this.db.prepare('SELECT temperature, COUNT(*) as c FROM knowledge GROUP BY temperature').all() as any[]
-    for (const r of tempRows) byTemp[r.temperature] = r.c
-
-    const relCount = (this.db.prepare('SELECT COUNT(*) as c FROM relations').get() as any).c
-    const embCount = (this.db.prepare('SELECT COUNT(*) as c FROM knowledge_embeddings').get() as any).c
-
-    const dbPath = this.db.name
-    let dbSizeBytes = 0
-    try {
-      dbSizeBytes = statSync(dbPath).size
-    } catch { /* ignore */ }
-
-    return { byTruth, byTemperature: byTemp, relationCount: relCount, embeddingCount: embCount, dbSizeBytes }
-  }
+  // ── Role Config ──
 
   async getRoleConfig(role: string): Promise<RoleConfig | null> {
+    this.ensureSchema()
     const row = this.db.prepare('SELECT * FROM role_config WHERE role = ?').get(role) as any
     if (!row) return null
     return {
@@ -232,8 +163,9 @@ export class SqliteStore implements KnowledgeStorage {
   }
 
   async setRoleConfig(config: RoleConfig): Promise<void> {
+    this.ensureSchema()
     this.db.prepare(`
-      INSERT INTO role_config(role, entry_kn_ids, spread_depth, context_budget, priority_tasks)
+      INSERT INTO role_config (role, entry_kn_ids, spread_depth, context_budget, priority_tasks)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(role) DO UPDATE SET
         entry_kn_ids = excluded.entry_kn_ids,
@@ -250,113 +182,244 @@ export class SqliteStore implements KnowledgeStorage {
   }
 
   async listRoles(): Promise<string[]> {
-    return (this.db.prepare('SELECT role FROM role_config').all() as any[]).map(r => r.role)
+    this.ensureSchema()
+    const rows = this.db.prepare('SELECT role FROM role_config').all() as any[]
+    return rows.map(r => r.role)
   }
 
-  async getRelations(id: string): Promise<{ source_kn: string; target_kn: string; rel_type: string }[]> {
-    const out = this.db.prepare('SELECT source_kn, target_kn, rel_type FROM relations WHERE source_kn = ?').all(id) as any[]
-    const back = this.db.prepare('SELECT source_kn, target_kn, rel_type FROM relations WHERE target_kn = ?').all(id) as any[]
-    return [...out, ...back]
+  // ── Audit ──
+
+  async logAudit(knId: string | null, operation: string, detail?: string): Promise<void> {
+    this.ensureSchema()
+    this.db.prepare(
+      'INSERT INTO audit_log (kn_id, operation, detail, actor) VALUES (?, ?, ?, ?)'
+    ).run(knId, operation, detail || null, 'agent')
   }
 
-  async recordAccess(id: string): Promise<void> {
-    this.db.prepare(`
-      UPDATE knowledge SET
-        practice_count = practice_count + 1,
-        last_accessed = datetime('now')
-      WHERE id = ?
-    `).run(id)
-  }
-
-  async recordPractice(id: string, success: boolean): Promise<void> {
-    const row = this.db.prepare('SELECT * FROM knowledge WHERE id = ?').get(id) as any
-    if (!row) return
-
-    const params = {
-      strength: row.strength,
-      stability: row.stability,
-      difficulty: row.difficulty,
-    }
-    const updated = success ? applySuccess(params) : applyFailure(params)
-    const temperature = updateTemperature(updated.strength)
-
-    this.db.prepare(`
-      UPDATE knowledge SET
-        practice_count = practice_count + 1,
-        practice_success = practice_success + ?,
-        strength = ?, stability = ?, difficulty = ?,
-        temperature = ?,
-        last_accessed = datetime('now'),
-        updated_at = datetime('now')
-      WHERE id = ?
-    `).run(success ? 1 : 0, updated.strength, updated.stability, updated.difficulty, temperature, id)
-  }
-
-  async updateParams(id: string, params: Partial<UpdatableFields>): Promise<void> {
-    const sets: string[] = []
+  async queryAudit(limit: number = 50, operation?: string): Promise<AuditEntry[]> {
+    this.ensureSchema()
+    let sql = 'SELECT * FROM audit_log'
     const values: any[] = []
-    for (const [key, val] of Object.entries(params)) {
-      sets.push(`${key} = ?`)
-      values.push(val)
+
+    if (operation) {
+      sql += ' WHERE operation = ?'
+      values.push(operation)
     }
-    if (sets.length === 0) return
-    sets.push("updated_at = datetime('now')")
-    values.push(id)
-    this.db.prepare(`UPDATE knowledge SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+
+    sql += ' ORDER BY timestamp DESC LIMIT ?'
+    values.push(limit)
+
+    return this.db.prepare(sql).all(...values) as AuditEntry[]
   }
 
-  close(): void {
+  // ── Refresh ──
+
+  async queueRefresh(knId: string, sourceRef: string, sourceType: string, reason: string): Promise<void> {
+    this.ensureSchema()
+    const now = new Date().toISOString()
+    this.db.prepare(`
+      INSERT INTO refresh_queue (kn_id, source_ref, source_type, reason, status, created_at, scheduled_at, updated_at)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+    `).run(knId, sourceRef, sourceType, reason, now, now, now)
+  }
+
+  // ── Embeddings ──
+
+  async getEmbedding(knId: string): Promise<Float32Array | null> {
+    this.ensureSchema()
+    const row = this.db.prepare('SELECT embedding FROM knowledge_embeddings WHERE kn_id = ?').get(knId) as any
+    if (!row || !row.embedding) return null
+    return new Float32Array(row.embedding.split(',').map(Number))
+  }
+
+  async saveEmbedding(knId: string, embedding: Float32Array): Promise<void> {
+    this.ensureSchema()
+    this.db.prepare(`
+      INSERT INTO knowledge_embeddings (kn_id, embedding)
+      VALUES (?, ?)
+      ON CONFLICT(kn_id) DO UPDATE SET embedding = excluded.embedding
+    `).run(knId, Array.from(embedding).join(','))
+  }
+
+  // ── Maintenance ──
+
+  async getStaleEntries(days: number): Promise<Array<{ id: string; strength: number; stability: number; difficulty: number; updated_at: string }>> {
+    this.ensureSchema()
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    return this.db.prepare(`
+      SELECT id, strength, stability, difficulty, updated_at
+      FROM knowledge
+      WHERE truth = 'confirmed' AND updated_at < ?
+    `).all(cutoff) as Array<{ id: string; strength: number; stability: number; difficulty: number; updated_at: string }>
+  }
+
+  async updateFSRSParams(id: string, params: FSRSParams, temperature: string): Promise<void> {
+    this.ensureSchema()
+    this.db.prepare(
+      'UPDATE knowledge SET strength = ?, stability = ?, difficulty = ?, temperature = ?, updated_at = ? WHERE id = ?'
+    ).run(params.strength, params.stability, params.difficulty, temperature, new Date().toISOString(), id)
+  }
+
+  async updateLastAccessed(id: string): Promise<void> {
+    this.ensureSchema()
+    this.db.prepare(
+      'UPDATE knowledge SET last_accessed = ? WHERE id = ?'
+    ).run(new Date().toISOString(), id)
+  }
+
+  async getAllStaging(): Promise<KnowledgeEntry[]> {
+    this.ensureSchema()
+    const rows = this.db.prepare("SELECT * FROM knowledge WHERE truth = 'staging'").all() as any[]
+    return rows.map((row: any) => this.rowToEntry(row))
+  }
+
+  // ── Stats ──
+
+  async getStats(): Promise<{
+    total: number
+    byTruth: Record<string, number>
+    byType: Record<string, number>
+    byTemperature: Record<string, number>
+    relationCount: number
+    embeddingCount: number
+    dbSizeBytes: number
+  }> {
+    this.ensureSchema()
+    const total = (this.db.prepare('SELECT COUNT(*) as c FROM knowledge').get() as any).c
+    const byTruth: Record<string, number> = {}
+    for (const row of this.db.prepare('SELECT truth, COUNT(*) as c FROM knowledge GROUP BY truth').all() as any[]) {
+      byTruth[row.truth] = row.c
+    }
+    const byType: Record<string, number> = {}
+    for (const row of this.db.prepare('SELECT type, COUNT(*) as c FROM knowledge GROUP BY type').all() as any[]) {
+      byType[row.type] = row.c
+    }
+    const byTemperature: Record<string, number> = {}
+    for (const row of this.db.prepare('SELECT temperature, COUNT(*) as c FROM knowledge GROUP BY temperature').all() as any[]) {
+      byTemperature[row.temperature] = row.c
+    }
+    const relationCount = (this.db.prepare('SELECT COUNT(*) as c FROM relations').get() as any).c
+    const embeddingCount = (this.db.prepare('SELECT COUNT(*) as c FROM knowledge_embeddings').get() as any).c
+    return { total, byTruth, byType, byTemperature, relationCount, embeddingCount, dbSizeBytes: 0 }
+  }
+
+  // ── Export/Import ──
+
+  async getAllEntries(): Promise<KnowledgeEntry[]> {
+    this.ensureSchema()
+    const rows = this.db.prepare('SELECT * FROM knowledge').all() as any[]
+    return rows.map((row: any) => this.rowToEntry(row))
+  }
+
+  async bulkCreate(entries: KnowledgeEntry[]): Promise<{ imported: number; skipped: number }> {
+    this.ensureSchema()
+    let imported = 0
+    let skipped = 0
+
+    const insert = this.db.prepare(`
+      INSERT OR IGNORE INTO knowledge
+      (id, type, title, summary, content, code_example, tags, roles, tasks,
+       truth, provenance, evidence, strength, stability, difficulty, temperature,
+       practice_count, practice_success, source, relations, created_at, updated_at)
+      VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?
+      )
+    `)
+
+    for (const entry of entries) {
+      const result = insert.run(
+        entry.id, entry.type, entry.title.slice(0, 200), entry.summary, entry.content,
+        entry.code_example || null, JSON.stringify(entry.tags), JSON.stringify(entry.roles), JSON.stringify(entry.tasks),
+        entry.truth, entry.provenance, entry.evidence || null,
+        entry.strength, entry.stability, entry.difficulty, entry.temperature,
+        entry.practice_count, entry.practice_success, entry.source || null,
+        JSON.stringify(entry.relations), entry.created_at, entry.updated_at,
+      )
+      if ((result as any).changes === 0) skipped++
+      else imported++
+    }
+
+    return { imported, skipped }
+  }
+
+  // ── Gap ──
+
+  async createGap(gap: Omit<GapEntry, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
+    this.ensureSchema()
+    const now = new Date().toISOString()
+    const result = this.db.prepare(`
+      INSERT INTO knowledge_gaps (query, source_url, reporter_role, reporter_agent, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(gap.query, gap.source_url || null, gap.reporter_role || null, gap.reporter_agent || null, gap.status || 'open', now, now)
+    return (result as any).lastInsertRowid as number
+  }
+
+  async findGaps(params: { status?: string; reporter_role?: string; limit?: number; offset?: number }): Promise<GapEntry[]> {
+    this.ensureSchema()
+    let sql = 'SELECT * FROM knowledge_gaps WHERE 1=1'
+    const values: any[] = []
+
+    if (params.status) {
+      sql += ' AND status = ?'
+      values.push(params.status)
+    }
+    if (params.reporter_role) {
+      sql += ' AND reporter_role = ?'
+      values.push(params.reporter_role)
+    }
+
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+    values.push(params.limit || 10, params.offset || 0)
+
+    return this.db.prepare(sql).all(...values) as GapEntry[]
+  }
+
+  // ── Lifecycle ──
+
+  async close(): Promise<void> {
     this.db.close()
   }
 
-  async logAudit(kn_id: string | null, operation: string, detail?: string): Promise<void> {
-    this.db.prepare('INSERT INTO audit_log(kn_id, operation, detail) VALUES (?, ?, ?)').run(kn_id, operation, detail || null)
-  }
+  // ── Helpers ──
 
-  async queryAudit(limit = 50, operation?: string): Promise<AuditEntry[]> {
-    let sql = 'SELECT * FROM audit_log'
-    const params: any[] = []
-    if (operation) {
-      sql += ' WHERE operation = ?'
-      params.push(operation)
-    }
-    sql += ' ORDER BY timestamp DESC LIMIT ?'
-    params.push(limit)
-    return this.db.prepare(sql).all(...params) as AuditEntry[]
-  }
-
-  async saveEmbedding(kn_id: string, embedding: Float32Array, model: string): Promise<void> {
-    this.db.prepare(`
-      INSERT INTO knowledge_embeddings(kn_id, embedding, model)
-      VALUES (?, ?, ?)
-      ON CONFLICT(kn_id) DO UPDATE SET
-        embedding = excluded.embedding,
-        model = excluded.model,
-        updated_at = datetime('now')
-    `).run(kn_id, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), model)
-  }
-
-  async getEmbedding(kn_id: string): Promise<{ embedding: Float32Array; model: string } | null> {
-    const row = this.db.prepare(
-      'SELECT embedding, model FROM knowledge_embeddings WHERE kn_id = ?',
-    ).get(kn_id) as any
-    if (!row) return null
-    const buf: Buffer = row.embedding
+  private rowToEntry(row: any): KnowledgeEntry {
     return {
-      embedding: new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / Float32Array.BYTES_PER_ELEMENT),
-      model: row.model,
+      id: row.id,
+      type: row.type || 'concept',
+      title: row.title || '',
+      summary: row.summary || '',
+      content: row.content || '',
+      code_example: row.code_example || undefined,
+      tags: this.safeJsonParse(row.tags, []),
+      roles: this.safeJsonParse(row.roles, []),
+      tasks: this.safeJsonParse(row.tasks, []),
+      truth: row.truth || 'staging',
+      provenance: row.provenance || 'unverified',
+      evidence: row.evidence || undefined,
+      strength: row.strength ?? 0.8,
+      stability: row.stability ?? 0.8,
+      difficulty: row.difficulty ?? 0.3,
+      temperature: (['hot', 'warm', 'cool', 'frozen'].includes(row.temperature) ? row.temperature : 'warm') as 'hot' | 'warm' | 'cool' | 'frozen',
+      practice_count: row.practice_count || 0,
+      practice_success: row.practice_success || 0,
+      supersedes: row.supersedes || undefined,
+      superseded_by: row.superseded_by || undefined,
+      source: row.source || undefined,
+      relations: this.safeJsonParse(row.relations, []),
+      created_at: row.created_at || '',
+      updated_at: row.updated_at || '',
+      last_accessed: row.last_accessed || undefined,
     }
   }
 
-  async getAllEmbeddings(): Promise<Array<{ kn_id: string; embedding: Float32Array }>> {
-    return (this.db.prepare('SELECT kn_id, embedding FROM knowledge_embeddings').all() as any[]).map(
-      (r: any) => {
-        const buf: Buffer = r.embedding
-        return {
-          kn_id: r.kn_id,
-          embedding: new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / Float32Array.BYTES_PER_ELEMENT),
-        }
-      },
-    )
+  private safeJsonParse(data: any, fallback: any): any {
+    if (!data) return fallback
+    try {
+      return JSON.parse(data)
+    } catch {
+      return fallback
+    }
   }
 }

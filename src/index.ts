@@ -5,6 +5,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { config } from './config.js'
 import { SqliteStore } from './storage/sqlite-store.js'
@@ -18,7 +20,9 @@ import { handleGetRoleConfig, handleSetRoleConfig, handleListRoles } from './too
 import { handleDecaySweep } from './tools/maintenance.js'
 import { handleAuditQuery } from './tools/audit.js'
 import { handleExport, handleImport } from './tools/ops.js'
-import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema, AuditSchema, ImportSchema } from './validation.js'
+import { handleReportGap } from './tools/report-gap.js'
+import { handleGaps } from './tools/gaps.js'
+import { SearchSchema, LearnSchema, RelevantSchema, ConfirmSchema, RoleConfigSchema, MaintenanceSchema, AuditSchema, ImportSchema, RequestRefreshSchema, ReportGapSchema, QueryGapsSchema } from './validation.js'
 import type { KnowledgeEntry } from './types.js'
 
 // ── 初始化 ──
@@ -32,10 +36,9 @@ if (llm) {
     console.error(`[auto-kb] Embedding: ${config.embedding.model} (${config.embedding.baseUrl})`)
   }
 }
-
 const server = new Server(
   { name: 'auto-knowledge-base', version: '0.1.0' },
-  { capabilities: { tools: {} } },
+  { capabilities: { tools: {}, prompts: {} } },
 )
 
 // ── 工具列表 ──
@@ -44,13 +47,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'knowledge_search',
-      description: '搜索知识库，支持语义理解。返回匹配的知识条目和综合说明。',
+      description: '搜索知识库，支持语义理解。可选按角色限定搜索范围。返回匹配的知识条目和综合说明。',
       inputSchema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: '搜索关键词或自然语言查询' },
           tags: { type: 'array', items: { type: 'string' }, description: '按标签筛选' },
           project: { type: 'string', description: '按项目名筛选' },
+          role: { type: 'string', description: '按角色限定搜索范围（可选，基于扩散激活）' },
           limit: { type: 'number', description: '返回数量上限' },
         },
         required: ['query'],
@@ -212,8 +216,105 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['entries'],
       },
     },
+    {
+      name: 'knowledge_request_refresh',
+      description: '请求重新消化一条知识。当知识过时需要从源素材重新提取时调用。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '知识条目 ID' },
+          reason: { type: 'string', enum: ['decay', 'agent_request', 'manual'], description: '刷新原因' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'knowledge_report_gap',
+      description: '报告知识库空白：当搜索未找到所需知识时报告 gap。可选提供 source_url 触发自动消化（content-digester）。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索关键词或问题' },
+          source_url: { type: 'string', description: '知识来源 URL（提供后触发自动消化）' },
+          reporter_role: { type: 'string', description: '报告者角色' },
+          reporter_agent: { type: 'string', description: '报告者 Agent ID' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'knowledge_gaps',
+      description: '查询知识库空白（gap）记录。可按状态和报告者角色过滤，支持分页。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['open', 'digested', 'rejected', 'auto_digested'], description: '按状态筛选' },
+          reporter_role: { type: 'string', description: '按报告者角色筛选' },
+          limit: { type: 'number', description: '返回条数上限' },
+        },
+      },
+    },
   ],
 }))
+
+
+// ── Prompts（自动上下文注入） ──
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: [
+    {
+      name: 'knowledge_context',
+      description: '获取与当前角色和任务相关的知识，自动注入为系统上下文。Agent 无感知获得知识。',
+      arguments: [
+        { name: 'role', description: '当前 Agent 角色', required: false },
+        { name: 'task', description: '当前任务描述', required: false },
+      ],
+    },
+    {
+      name: 'knowledge_search_context',
+      description: '根据搜索词获取相关知识注入上下文。',
+      arguments: [
+        { name: 'query', description: '搜索关键词', required: true },
+      ],
+    },
+  ],
+}))
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params
+
+  switch (name) {
+    case 'knowledge_context': {
+      const role = (args?.role as string) || 'default'
+      const task = (args?.task as string) || ''
+      const relevantResult = await handleRelevant(storage, { role, task, maxResults: 5 }, llm)
+      const text = relevantResult.entries.length === 0
+        ? '（暂无相关知识）'
+        : '以下是知识库中与当前任务相关的知识：\n\n' +
+          relevantResult.entries.map((e, i) =>
+            `[${i + 1}] ${e.title}\n${e.summary || e.content.slice(0, 300)}`
+          ).join('\n\n') +
+          '\n\n请在需要时参考以上知识。'
+      return { messages: [{ role: 'assistant' as const, content: { type: 'text', text } }] }
+    }
+
+    case 'knowledge_search_context': {
+      const query = args?.query as string
+      if (!query) return { messages: [] }
+      const searchResult = await handleSearch(storage, { query, limit: 5 }, llm)
+      const text = searchResult.entries.length === 0
+        ? `未找到与 "${query}" 相关知识。`
+        : `搜索结果（${query}）：\n\n` +
+          searchResult.entries.map((e, i) =>
+            `[${i + 1}] ${e.title}\n${e.summary || e.content.slice(0, 300)}`
+          ).join('\n\n')
+      return { messages: [{ role: 'assistant' as const, content: { type: 'text', text } }] }
+    }
+
+    default:
+      throw new Error(`Unknown prompt: ${name}`)
+  }
+})
 
 // ── 工具调用 ──
 
@@ -336,7 +437,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         switch (action) {
           case 'decay_sweep': {
             const result = await handleDecaySweep(storage)
-            await storage.logAudit(null, 'maintenance', `decayed: ${result.decayed}, frozen: ${result.frozen}`)
+            await storage.logAudit(null, 'maintenance', `decayed: ${result.decayed}, frozen: ${result.frozen}, refreshed: ${result.refreshed}`)
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
           }
           default:
@@ -358,6 +459,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         await storage.logAudit(null, 'export', `count: ${exportResult.count}`)
         return { content: [{ type: 'text', text: JSON.stringify(exportResult, null, 2) }] }
       }
+      case 'knowledge_request_refresh': {
+        const parsed = RequestRefreshSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const entry = await storage.get(parsed.data.id)
+        if (!entry) {
+          return { isError: true, content: [{ type: 'text', text: `Entry not found: ${parsed.data.id}` }] }
+        }
+        const sourceRef = entry.source || `kb:${entry.id}`
+        const sourceType = sourceRef.startsWith('http') ? 'article'
+          : sourceRef.includes('github') ? 'repo'
+          : sourceRef.includes('arxiv') ? 'paper'
+          : 'unknown'
+        await storage.queueRefresh(entry.id, sourceRef, sourceType, parsed.data.reason)
+        await storage.logAudit(entry.id, 'request_refresh', `reason: ${parsed.data.reason}`)
+        return {
+          content: [{ type: 'text', text: JSON.stringify({
+            success: true,
+            kn_id: entry.id,
+            source_ref: sourceRef,
+            reason: parsed.data.reason,
+          }, null, 2) }],
+        }
+      }
 
       case 'knowledge_import': {
         const parsed = ImportSchema.safeParse(args)
@@ -369,6 +495,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: 'text', text: JSON.stringify(importResult, null, 2) }] }
       }
 
+
+      case 'knowledge_report_gap': {
+        const parsed = ReportGapSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const result = await handleReportGap(storage, parsed.data, llm)
+        await storage.logAudit(null, 'report_gap', `query: ${parsed.data.query}, found: ${result.found}, auto_digested: ${result.autoDigested}`)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'knowledge_gaps': {
+        const parsed = QueryGapsSchema.safeParse(args)
+        if (!parsed.success) {
+          return { isError: true, content: [{ type: 'text', text: parsed.error.message }] }
+        }
+        const result = await handleGaps(storage, parsed.data)
+        await storage.logAudit(null, 'gaps', `query gaps, status: ${parsed.data.status || 'all'}, reporter_role: ${parsed.data.reporter_role || 'all'}`)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
       default:
         throw new Error(`Unknown tool: ${name}`)
     }
