@@ -4,14 +4,20 @@ import type { RoleConfig } from '../types.js'
 export async function handleGetRoleConfig(
   storage: KnowledgeStorage,
   role: string,
-): Promise<{ found: boolean; config?: RoleConfig }> {
+): Promise<RoleConfig | null> {
   const config = await storage.getRoleConfig(role)
-  return config ? { found: true, config } : { found: false }
+  return config || null
 }
 
 export async function handleSetRoleConfig(
   storage: KnowledgeStorage,
-  config: RoleConfig,
+  config: {
+    role: string
+    entry_kn_ids: string[]
+    spread_depth: number
+    context_budget: number
+    priority_tasks: string[]
+  },
 ): Promise<{ success: boolean }> {
   await storage.setRoleConfig(config)
   return { success: true }

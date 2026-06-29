@@ -3,34 +3,40 @@ import { applyDecay, updateTemperature } from '../fsrs.js'
 
 export async function handleDecaySweep(
   storage: KnowledgeStorage,
-): Promise<{ decayed: number; frozen: number }> {
-  const allIds = await storage.list('confirmed')
+): Promise<{
+  decayed: number
+  frozen: number
+  refreshed: number
+}> {
+  const staleEntries = await storage.getStaleEntries(7)
   let decayed = 0
   let frozen = 0
-  const now = Date.now()
 
-  for (const id of allIds) {
-    const entry = await storage.get(id)
-    if (!entry || !entry.last_accessed) continue
-
-    const days = (now - new Date(entry.last_accessed).getTime()) / (1000 * 60 * 60 * 24)
-    if (days <= 7) continue
-
-    const result = applyDecay(
-      { strength: entry.strength, stability: entry.stability, difficulty: entry.difficulty },
-      days,
+  for (const entry of staleEntries) {
+    const daysSinceAccess = Math.floor(
+      (Date.now() - new Date(entry.updated_at).getTime()) / (1000 * 60 * 60 * 24),
     )
 
-    const temp = updateTemperature(result.strength)
-    if (result.strength !== entry.strength || temp !== entry.temperature) {
-      await storage.updateParams(id, {
-        strength: result.strength,
-        stability: result.stability,
-        temperature: temp,
-      })
-      decayed++
-      if (temp === 'frozen' && entry.temperature !== 'frozen') frozen++
+    const newParams = applyDecay(
+      {
+        strength: entry.strength,
+        stability: entry.stability,
+        difficulty: entry.difficulty,
+      },
+      daysSinceAccess,
+    )
+
+    const newTemp = updateTemperature(newParams.strength)
+
+    await storage.updateFSRSParams(entry.id, newParams, newTemp)
+    decayed++
+
+    if (newTemp === 'frozen') {
+      frozen++
+      // Queue refresh for frozen entries
+      await storage.queueRefresh(entry.id, `kb:${entry.id}`, 'unknown', 'decay')
     }
   }
-  return { decayed, frozen }
+
+  return { decayed, frozen, refreshed: frozen }
 }

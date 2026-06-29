@@ -7,69 +7,52 @@ export async function handleRelevant(
   storage: KnowledgeStorage,
   params: RelevantParams,
   llm?: LLMClient,
-): Promise<{ entries: KnowledgeEntry[]; llmStatus: LLMStatus }> {
-  const { role, task, keywords, project, maxResults } = params
-  const limit = maxResults || 5
+): Promise<{
+  entries: KnowledgeEntry[]
+  synthesis: string
+  llmStatus: LLMStatus
+}> {
+  const { role, task, keywords, project, maxResults = 5 } = params
 
-  // 1. Get diffusion-activated entries for this role
+  // 1. Diffusion activation (role-based)
   const activated = await spreadActivation(storage, role)
-  const activationMap = new Map(activated.map(a => [a.entry.id, a.activation]))
 
-  // 2. BM25 search on task/keywords
-  const terms = [...(keywords || []), ...task.split(/\s+/).filter(w => w.length > 1)]
-  const searched = terms.length > 0
-    ? await storage.search({ query: terms.join(' '), project, limit: limit * 5 })
-    : []
+  // 2. BM25 boost on activated entries
+  const queryTerms = [task, ...(keywords || [])].join(' ')
+  let entries: KnowledgeEntry[]
 
-  // 3. Combine entries (activation + search results)
-  const combined = new Map<string, KnowledgeEntry>()
-  for (const e of searched) combined.set(e.id, e)
-  for (const a of activated) combined.set(a.entry.id, a.entry)
+  if (activated.length > 0) {
+    // Score activated entries by BM25 relevance
+    const bm25Results = await storage.search({ query: queryTerms, limit: maxResults * 2 })
+    const bm25Ids = new Set(bm25Results.map(e => e.id))
 
-  // 4. Filter + score
-  const scored = [...combined.values()]
-    .filter(e => {
-      // Role filter: if entry specifies roles, current must match
-      if (e.roles.length > 0 && !e.roles.includes(role)) return false
-      return e.truth === 'confirmed' && e.temperature !== 'frozen'
-    })
-    .map(e => {
-      const activation = activationMap.get(e.id) ?? 0
-      const hasTaskMatch = searched.some(s => s.id === e.id)
+    // Merge: activated get priority, BM25 fills remaining slots
+    const merged = activated
+      .filter(a => bm25Ids.has(a.entry.id))
+      .slice(0, maxResults)
+      .map(a => a.entry)
 
-      const roleBonus = activation > 0 ? 0.3 : 0
-      const utilityBonus = activation > 0 ? 1.3 : 1.0
-      const strengthScore = e.strength * 0.5 * utilityBonus
-      const taskScore = hasTaskMatch ? 0.2 : 0
-      const provBonus = (e.provenance === 'extracted' || e.provenance === 'user_stated') ? 0.1
-        : e.provenance === 'unverified' ? -0.1 : 0
+    const remaining = bm25Results.filter(e => !merged.find(m => m.id === e.id))
+    entries = [...merged, ...remaining].slice(0, maxResults)
+  } else {
+    // No role config — pure BM25
+    entries = await storage.search({ query: queryTerms, limit: maxResults })
+  }
 
-      return {
-        entry: e,
-        score: roleBonus + strengthScore + taskScore + provBonus,
-      }
-    })
-
-  scored.sort((a, b) => b.score - a.score)
-  let result = scored.slice(0, limit).map(s => s.entry)
-
-  // 5. LLM relevance re-ranking (optional enhancement)
-  let llmStatus: LLMStatus = llm?.configured ? 'active' : 'unconfigured'
-  if (llm?.configured && result.length > 0) {
+  // 3. LLM synthesis
+  const llmStatus: LLMStatus = llm?.configured ? 'active' : 'unconfigured'
+  let synthesis = ''
+  if (llm?.configured && entries.length > 0) {
     try {
-      const ranked = await llm.rankRelevant(params.task, params.keywords || [], result)
-      if (ranked.length > 0) {
-        const rankMap = new Map(ranked.map(r => [r.id, r.relevance]))
-        result.sort((a, b) => (rankMap.get(b.id) ?? 0) - (rankMap.get(a.id) ?? 0))
+      const result = await llm.rankSearchResults(queryTerms, entries)
+      if (result) {
+        synthesis = result.synthesis || ''
+        entries = result.rankings || entries
       }
-      llmStatus = 'active'
     } catch {
-      llmStatus = 'degraded'
+      // LLM rerank failed gracefully
     }
   }
 
-  // Record access for returned entries
-  await Promise.all(result.map(e => storage.recordAccess(e.id)))
-
-  return { entries: result, llmStatus }
+  return { entries: entries.slice(0, maxResults), synthesis, llmStatus }
 }

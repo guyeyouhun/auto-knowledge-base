@@ -61,52 +61,46 @@ export async function handleLearn(
     roles: roles || [],
     tasks: tasks || [],
     truth: 'staging',
-    provenance: 'user_stated',
+    provenance: llmStatus !== 'unconfigured' ? 'extracted' : 'unverified',
+    evidence: undefined,
     strength: 0.8,
     stability: 0.8,
     difficulty: 0.3,
     temperature: 'warm',
     practice_count: 0,
     practice_success: 0,
+    source: source || undefined,
     relations: relations || [],
-    source: source || 'knowledge_learn',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
 
-  // Similar and contradiction handling (unchanged)
-  if (similar.length > 0) {
-    for (const s of similar.slice(0, 3)) {
-      entry.relations.push({ target: s.id, type: 'references' })
-    }
-  }
-
-  if (contradicts && contradicts.length > 0) {
-    let hasExisting = false
-    for (const targetId of contradicts) {
-      const target = await storage.get(targetId)
-      if (target) {
-        hasExisting = true
-        await storage.updateParams(targetId, { truth: 'disputed' })
-        entry.relations.push({ target: targetId, type: 'contradicts' })
-      }
-    }
-    if (hasExisting) {
-      entry.truth = 'disputed'
-    }
-  }
-
   await storage.save(entry)
 
-  // 4. Generate embedding (non-blocking — entry already stored)
-  if (llm?.embeddingConfigured) {
-    generateEmbedding(content, llm).then(embedding => {
-      if (embedding) {
-        return storage.saveEmbedding(entry.id, embedding, llm!.modelName)
+  // 4. Handle contradictions
+  if (contradicts && contradicts.length > 0) {
+    for (const targetId of contradicts) {
+      await storage.addRelation(entry.id, targetId, 'contradicts')
+    }
+  }
+
+  // 5. Handle explicit relations
+  if (relations && relations.length > 0) {
+    for (const rel of relations) {
+      const existing = await storage.search({ query: rel.target, limit: 1 })
+      if (existing.length > 0) {
+        await storage.addRelation(entry.id, existing[0].id, rel.type)
       }
-    }).catch(err => {
-      console.warn('[learn] embedding failed:', err)
-    })
+    }
+  }
+
+  // 6. Fire-and-forget embedding
+  if (llm?.embeddingConfigured) {
+    generateEmbedding(content, llm)
+      .then(emb => {
+        if (emb) storage.saveEmbedding(entry.id, emb).catch(() => {})
+      })
+      .catch(() => {})
   }
 
   return { id: entry.id, title: entry.title, dedup: false, llmStatus }
